@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('cloudops_theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = t === 'claro' || (t === 'sistema' && !prefersDark) ? false : true;
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+            document.documentElement.style.backgroundColor = '#070B18';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+            document.documentElement.style.backgroundColor = '#F8FAFC';
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <style>
+      *,*::before,*::after{box-sizing:border-box;}
+      html,body,#root{margin:0;padding:0;border:0;outline:none;width:100%;max-width:100%;}
+      html,body{overflow-x:hidden;}
+      html:focus,body:focus,#root:focus{outline:none!important;}
+      html.dark,html.dark body,html.dark #root{background-color:#070B18;}
+      html:not(.dark),html:not(.dark) body,html:not(.dark) #root{background-color:#F8FAFC;}
+      #root{min-height:100vh;}
+    </style>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#070B18" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="CloudOps Dashboard — Panel de operaciones Cloud para planificación, costos, seguridad e infraestructura global de AWS." />
+    <title>CloudOps Dashboard — AWS Cloud Operations</title>
+  </head>
+  <body style="margin:0;padding:0;border:0;outline:none;">
+    <div id="root" style="margin:0;padding:0;border:0;outline:none;width:100%;min-height:100vh;"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
