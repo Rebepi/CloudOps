@@ -1,14 +1,18 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { calcularSubtotalItemCosto } from '../lib/cloudSimulator';
 import type { PropuestaCloud, ItemCosto } from '../types/cloud';
+import { useBackend } from './BackendContext';
+import { fromProposalDto, request, toProposalDto, type ProposalDto } from '../services/backend';
 
 export type Ambiente = 'Producción' | 'Staging' | 'Sandbox';
 
 interface CloudState {
   propuestas: PropuestaCloud[];
-  agregarPropuesta: (p: Omit<PropuestaCloud, 'id' | 'creadaEn'>) => void;
-  eliminarPropuesta: (id: string) => void;
+  agregarPropuesta: (p: Omit<PropuestaCloud, 'id' | 'creadaEn'>) => Promise<void>;
+  eliminarPropuesta: (id: string) => Promise<void>;
+  propuestasCargando: boolean;
+  propuestasError: string | null;
 
   itemsCosto: ItemCosto[];
   agregarItemCosto: (i: Omit<ItemCosto, 'id'>) => void;
@@ -42,7 +46,8 @@ const presetCostosIniciales: ItemCosto[] = [
 ];
 
 export function CloudProvider({ children }: { children: ReactNode }) {
-  const [propuestas, setPropuestas] = useLocalStorage<PropuestaCloud[]>('cops.propuestas', [
+  const backend = useBackend();
+  const [propuestasDemo, setPropuestasDemo] = useLocalStorage<PropuestaCloud[]>('cops.propuestas', [
     {
       id: 'demo-1',
       nombre: 'Plataforma E-Commerce Multi-AZ',
@@ -60,20 +65,52 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       creadaEn: new Date(Date.now() - 86400000 * 2).toISOString(),
     },
   ]);
+  const [propuestasApi, setPropuestasApi] = useState<PropuestaCloud[]>([]);
+  const [propuestasCargando, setPropuestasCargando] = useState(backend.mode === 'api');
+  const [propuestasError, setPropuestasError] = useState<string | null>(null);
+  const propuestas = backend.mode === 'api' ? propuestasApi : propuestasDemo;
+
+  useEffect(() => {
+    if (backend.mode !== 'api' || !backend.projectId) { setPropuestasCargando(false); return; }
+    let cancelled = false;
+    setPropuestasCargando(true);
+    const load = async () => {
+      const all: ProposalDto[] = [];
+      for (let offset = 0; ; offset += 200) {
+        const page = await request<ProposalDto[]>(`/projects/${backend.projectId}/proposals?limit=200&offset=${offset}`, backend.token);
+        all.push(...page);
+        if (page.length < 200) break;
+      }
+      if (!cancelled) setPropuestasApi(all.map(fromProposalDto));
+    };
+    load().catch(err => { if (!cancelled) setPropuestasError(err.message); })
+      .finally(() => { if (!cancelled) setPropuestasCargando(false); });
+    return () => { cancelled = true; };
+  }, [backend.mode, backend.projectId, backend.token]);
 
   const [itemsCosto, setItemsCosto] = useLocalStorage<ItemCosto[]>('cops.costos', presetCostosIniciales);
   const [regionPrincipal, setRegionPrincipal] = useState<string>('us-east-1');
   const [ambiente, setAmbiente] = useState<Ambiente>('Producción');
   const [presupuestoLimite, setPresupuestoLimite] = useState<number>(250);
 
-  const agregarPropuesta: CloudState['agregarPropuesta'] = (p) =>
-    setPropuestas((prev) => [
-      { ...p, id: crypto.randomUUID(), creadaEn: new Date().toISOString() },
-      ...prev,
-    ]);
+  const agregarPropuesta: CloudState['agregarPropuesta'] = async (p) => {
+    if (backend.mode === 'demo') {
+      setPropuestasDemo(prev => [{ ...p, id: crypto.randomUUID(), creadaEn: new Date().toISOString() }, ...prev]);
+      return;
+    }
+    if (!backend.projectId) throw new Error('Selecciona un proyecto');
+    if (!backend.permissions.includes('proposal:write')) throw new Error('Tu perfil es de lectura en este proyecto');
+    const saved = await request<ProposalDto>(`/projects/${backend.projectId}/proposals`, backend.token,
+      { method: 'POST', body: JSON.stringify(toProposalDto(p)) });
+    setPropuestasApi(prev => [fromProposalDto(saved), ...prev]);
+  };
 
-  const eliminarPropuesta = (id: string) =>
-    setPropuestas((prev) => prev.filter((p) => p.id !== id));
+  const eliminarPropuesta = async (id: string) => {
+    if (backend.mode === 'demo') { setPropuestasDemo(prev => prev.filter(p => p.id !== id)); return; }
+    if (!backend.permissions.includes('proposal:write')) throw new Error('Tu perfil es de lectura en este proyecto');
+    await request(`/proposals/${id}`, backend.token, { method: 'DELETE' });
+    setPropuestasApi(prev => prev.filter(p => p.id !== id));
+  };
 
   const agregarItemCosto: CloudState['agregarItemCosto'] = (i) =>
     setItemsCosto((prev) => [...prev, { ...i, id: crypto.randomUUID() }]);
@@ -127,6 +164,8 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         propuestas,
+        propuestasCargando,
+        propuestasError,
         agregarPropuesta,
         eliminarPropuesta,
         itemsCosto,

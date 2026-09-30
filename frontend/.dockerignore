@@ -1,0 +1,13 @@
+node_modules
+.aws
+.codex
+.agents
+credentials
+*.pem
+*.key
+dist
+*.tsbuildinfo
+.env*
+test-results/
+playwright-report/
+coverage/

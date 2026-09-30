@@ -1,0 +1,22 @@
+# Aplicación local conectada a AWS real. Uso explícito, nunca habilitado en CI.
+# Credenciales temporales configuradas en el host; no se copian a imágenes/repositorio.
+x-aws-local: &aws-local
+  environment:
+    ALLOW_AWS: ${ALLOW_AWS:-false}
+    AWS_ACCOUNT_ALLOWLIST: ${AWS_ACCOUNT_ALLOWLIST:-[]}
+    AWS_REGION_ALLOWLIST: ${AWS_REGION_ALLOWLIST:-["us-east-1"]}
+    AWS_PROFILE: ${AWS_PROFILE:?Define el nombre del perfil AWS CLI/SSO}
+    AWS_CONFIG_FILE: /home/cloudops/.aws/config
+    AWS_SHARED_CREDENTIALS_FILE: /home/cloudops/.aws/credentials
+    AWS_EC2_METADATA_DISABLED: "true"
+  volumes:
+    - type: bind
+      source: ${AWS_SHARED_CONFIG_DIR:?Define la ruta absoluta al directorio .aws del host}
+      target: /home/cloudops/.aws
+      read_only: true
+      bind:
+        create_host_path: false
+
+services:
+  api: *aws-local
+  worker: *aws-local

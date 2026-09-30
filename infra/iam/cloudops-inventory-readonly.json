@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ObserveInventoryOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "ec2:DescribeInstances",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "rds:DescribeDBInstances",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

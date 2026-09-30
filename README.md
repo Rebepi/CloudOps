@@ -1,5 +1,26 @@
 # CloudOps Dashboard — AWS Cloud Operations & Architectural Design Platform
 
+## Estado actual: primer backend conectado
+
+El laboratorio ahora incluye FastAPI, PostgreSQL normalizado, migraciones, FLOCI, worker, inventario y auditoría.
+En modo API, Dashboard, Red e Infraestructura consultan snapshots persistidos; Red relaciona VPC/subnets y muestra CIDR, zonas y atributos observados. El esquema actual tiene 26 tablas de dominio y migración `0002_network`.
+Inicio: `docker compose up -d --build`; interfaz: http://127.0.0.1:27901; API: http://127.0.0.1:8000/docs.
+
+Para ejecutar esta entrega en otra PC con Git y Docker (motor Linux):
+
+```powershell
+git clone --branch diegx --single-branch https://github.com/Rebepi/CloudOps.git
+cd CloudOps
+docker compose up -d --build --wait --wait-timeout 180 api worker frontend
+```
+
+No requiere copiar `.venv`, `node_modules` ni credenciales; Docker instala dependencias y aplica migraciones/bootstrap. La base nueva está vacía: los snapshots/propuestas de la laptop anterior no están en Git.
+Guía completa: [otra PC y configuración privada](docs/OTRA-PC.md). Continuidad: [estado actual y pendientes](docs/ESTADO-Y-PENDIENTES.md).
+
+Consultar [implementación y comandos](docs/IMPLEMENTACION.md), [modelo de datos](docs/MODELO-DATOS.md) y [plan general](ARQUITECTURA-Y-PLAN.md).
+La operación AWS permanente está deshabilitada; se conservó el inventario real de una prueba puntual autorizada, sin volver a consultarlo para este incremento. El login mock no es apto para exposición pública. FinOps, métricas e IAM/seguridad del dashboard anterior siguen siendo educativos.
+La sección histórica que sigue describe el frontend académico: sus referencias a “100% funcional” y túneles no acreditan un backend productivo ni AWS real.
+
 > **Sistema Web Integral para la Planificación, Gobernanza, FinOps, Seguridad e Infraestructura Global de Soluciones en Amazon Web Services (AWS).**  
 > Práctica Integrativa · Cloud Foundations · Semanas 5 y 6 · Basado en el **AWS Well-Architected Framework**.
 

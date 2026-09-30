@@ -29,6 +29,8 @@ import {
   Cell,
 } from 'recharts';
 import { useCloud } from '../context/CloudContext';
+import { useBackend } from '../context/BackendContext';
+import ConnectedDashboard from './ConnectedDashboard';
 import { useTheme } from '../context/ThemeContext';
 import { serviciosAWS } from '../data/awsServices';
 import { controlesSeguridad, eventosAuditoria } from '../data/securityChecks';
@@ -76,6 +78,11 @@ const pilaresWellArchitected = [
 ];
 
 export default function Dashboard() {
+  const { mode } = useBackend();
+  return mode === 'api' ? <ConnectedDashboard /> : <DemoDashboard />;
+}
+
+function DemoDashboard() {
   const { costoMensual, propuestas, itemsCosto, ambiente, regionPrincipal } = useCloud();
   const { esOscuro } = useTheme();
   const [tabGrafico, setTabGrafico] = useState<'costos' | 'trafico' | 'regiones'>('costos');

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
@@ -19,6 +19,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useCloud } from '../../context/CloudContext';
+import { useBackend } from '../../context/BackendContext';
 import { useTheme } from '../../context/ThemeContext';
 import { usd } from '../../lib/format';
 import { Logo } from '../ui/Logo';
@@ -331,6 +332,9 @@ function NavItemRow({
 }
 
 export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: SidebarProps) {
+  const backend = useBackend();
+  const { pathname } = useLocation();
+  const roleLabel = ({ admin: 'Administrador', viewer: 'Lector', analyst: 'Analista', owner: 'Propietario' } as Record<string, string>)[backend.projectRole ?? ''] ?? 'Sin rol de proyecto';
   const { esOscuro } = useTheme();
   const { costoMensual, presupuestoLimite, propuestas } = useCloud();
   const porcentaje = Math.min(100, Math.round((costoMensual / (presupuestoLimite || 1)) * 100));
@@ -540,7 +544,13 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                   {grupo.items.map((item) => (
                     <NavItemRow
                       key={item.to}
-                      item={item}
+                      item={backend.mode === 'demo' ? item : {
+                        ...item,
+                        badge: ['/dashboard', '/infrastructure', '/network'].includes(item.to) ? 'DB' : item.badge,
+                        descripcion: item.to === '/infrastructure' ? 'Inventario persistido por cuenta y región'
+                          : item.to === '/network' ? 'VPCs y subnets del inventario observado'
+                          : item.to === '/dashboard' ? 'Resumen de inventario y auditoría local' : item.descripcion,
+                      }}
                       colapsado={colapsado}
                       onCerrar={onCerrar}
                       esOscuro={esOscuro}
@@ -556,7 +566,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
           className="relative z-10 p-3"
           style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
         >
-          {!colapsado ? (
+          {(backend.mode === 'demo' || ['/planning', '/costs'].includes(pathname)) && (!colapsado ? (
             <div
               className="rounded-2xl p-3.5 space-y-3 overflow-hidden relative"
               style={{
@@ -580,7 +590,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                     className={`${porcentaje > 85 ? 'text-rose-400' : 'text-amber-400'} transition-colors`}
                   />
                   <span className="text-[11px] font-bold text-slate-200">
-                    Presupuesto OpEx
+                    Estimación local · no factura AWS
                   </span>
                 </div>
                 <span
@@ -642,7 +652,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                     className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"
                     style={{ boxShadow: '0 0 8px rgba(52,211,153,0.9)' }}
                   />
-                  <span>AWS OK</span>
+                  <span>{backend.mode === 'demo' ? 'Demo' : 'Estimado'}</span>
                 </div>
               </div>
             </div>
@@ -679,7 +689,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                     }}
                   >
                     <p className="text-xs font-bold mb-2 text-white">
-                      Presupuesto Mensual
+                      Presupuesto estimado · no factura AWS
                     </p>
                     <p className="text-[11px] font-mono font-bold mb-2 text-slate-300">
                       {usd(costoMensual)} / {usd(presupuestoLimite)}
@@ -725,7 +735,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                 </button>
               </div>
             </div>
-          )}
+          ))}
 
           {!colapsado && (
             <div
@@ -753,10 +763,10 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
 
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-bold truncate text-slate-200">
-                  Admin CloudOps
+                  {backend.mode === 'demo' ? 'Usuario demo' : backend.identity?.email}
                 </p>
                 <p className="text-[9.5px] truncate text-slate-400">
-                  DevOps Lead · Pro
+                  {backend.mode === 'demo' ? 'Simulación local' : `${roleLabel} · sesión local`}
                 </p>
               </div>
 

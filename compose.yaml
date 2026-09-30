@@ -1,0 +1,117 @@
+name: cloudops
+
+x-api: &api
+  build: ./backend
+  environment: &api-env
+    APP_ENV: local
+    AUTH_MODE: mock
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cloudops}:${POSTGRES_PASSWORD:-cloudops_local}@postgres:5432/${POSTGRES_DB:-cloudops}
+    FLOCI_ENDPOINT_URL: http://floci:4566
+    FLOCI_ACCOUNT_ID: "000000000000"
+    ALLOW_AWS: "false"
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cloudops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cloudops_local}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudops}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  floci:
+    profiles: ["floci", "test"]
+    image: floci/floci:2.1.0
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_BASE_URL: http://floci:4566
+      FLOCI_STORAGE_MODE: wal
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_SERVICES_UI_ENABLED: "false"
+      FLOCI_SERVICES_EC2_MOCK: "true"
+      FLOCI_SERVICES_RDS_MOCK: "true"
+    volumes:
+      - floci-data:/app/data
+    # Sin socket Docker: el laboratorio inicial usa API de control y S3.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build: ./backend
+    environment: *api-env
+    command: ["sh", "-c", "alembic upgrade head && python -m app.bootstrap"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *api
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,time; assert time.time()-pathlib.Path('/tmp/cloudops-worker-health').stat().st_mtime < 600"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:27901:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  test:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cloudops}:${POSTGRES_PASSWORD:-cloudops_local}@postgres:5432/cloudops_test
+      TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cloudops}:${POSTGRES_PASSWORD:-cloudops_local}@postgres:5432/cloudops_test
+      FLOCI_ENDPOINT_URL: http://floci:4566
+      RUN_FLOCI_TESTS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      floci:
+        condition: service_healthy
+    command: ["sh", "-c", "python -m app.prepare_tests && ruff check app migrations tests && python -m pytest -q"]
+
+volumes:
+  postgres-data:
+  floci-data:

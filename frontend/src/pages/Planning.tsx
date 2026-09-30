@@ -28,6 +28,7 @@ import {
   CheckCheck,
 } from 'lucide-react';
 import { useCloud } from '../context/CloudContext';
+import { useBackend } from '../context/BackendContext';
 import { serviciosAWS } from '../data/awsServices';
 import { regiones } from '../data/regions';
 import { simularArquitecturaCloud } from '../lib/cloudSimulator';
@@ -186,7 +187,11 @@ const estadoInicial: FormState = {
 };
 
 export default function Planning() {
-  const { propuestas, agregarPropuesta, eliminarPropuesta, regionPrincipal, ambiente, multiplicadorAmbiente, agregarItemCosto } = useCloud();
+  const backend = useBackend();
+  const canWrite = backend.mode === 'demo' || backend.permissions.includes('proposal:write');
+  const { propuestas, propuestasCargando, propuestasError, agregarPropuesta, eliminarPropuesta, regionPrincipal, ambiente, multiplicadorAmbiente, agregarItemCosto } = useCloud();
+  const [guardando, setGuardando] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ ...estadoInicial, regionId: regionPrincipal });
   const [errores, setErrores] = useState<Partial<Record<keyof FormState, string>>>({});
   const [confirmacion, setConfirmacion] = useState(false);
@@ -282,6 +287,7 @@ export default function Planning() {
   };
 
   const aplicarPlantilla = (p: PlantillaArquitectura) => {
+    if (!canWrite) return;
     setForm({
       nombre: p.nombre,
       tipoAplicacion: p.tipo,
@@ -309,10 +315,13 @@ export default function Planning() {
     return Object.keys(e).length === 0;
   };
 
-  const manejarEnvio = (e: React.FormEvent) => {
+  const manejarEnvio = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validar()) return;
-    agregarPropuesta({
+    if (!canWrite) { setErrorGuardado('Tu perfil es de lectura en este proyecto'); return; }
+    if (!validar() || guardando || propuestasCargando) return;
+    setGuardando(true); setErrorGuardado(null);
+    try {
+    await agregarPropuesta({
       ...form,
       costoEstimadoMensual: simulacionActual.costoMensualEstimado,
       costoEstimadoAnual: simulacionActual.costoAnualEstimado,
@@ -322,6 +331,8 @@ export default function Planning() {
     setConfirmacion(true);
     setForm({ ...estadoInicial, regionId: regionPrincipal });
     setTimeout(() => setConfirmacion(false), 4000);
+    } catch (err) { setErrorGuardado(err instanceof Error ? err.message : 'No se pudo guardar'); }
+    finally { setGuardando(false); }
   };
 
   const exportarCsv = () => {
@@ -408,6 +419,8 @@ export default function Planning() {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {propuestasCargando && <p className="text-muted" role="status">Cargando propuestas…</p>}
+      {(errorGuardado || propuestasError) && <p className="text-rose-500" role="alert">{errorGuardado || propuestasError}</p>}
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
@@ -515,7 +528,9 @@ export default function Planning() {
           </div>
         </div>
 
-        <form onSubmit={manejarEnvio} className="space-y-6">
+        {!canWrite && <p role="status" className="mb-4 text-sm text-amber-500">Perfil lector: puedes consultar propuestas, pero no crearlas, modificarlas ni eliminarlas.</p>}
+        <form onSubmit={manejarEnvio}>
+          <fieldset disabled={!canWrite} className={`space-y-6 ${!canWrite ? 'pointer-events-none opacity-50' : ''}`}>
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted">
               <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-500/10 text-blue-600 font-mono text-[11px]">1</span>
@@ -1271,7 +1286,7 @@ export default function Planning() {
                     </span>
                   </div>
                   <p className="text-[10px] text-muted mt-0.5">
-                    {form.cumplimiento?.length || 0} certificaciones auditadas
+                    {form.cumplimiento?.length || 0} marcos de cumplimiento seleccionados (no auditados)
                   </p>
                 </div>
                 <div className="mt-2 pt-2 border-t border-line/60 flex items-center justify-between text-[10px]">
@@ -1288,7 +1303,7 @@ export default function Planning() {
             <div className="flex items-center gap-2">
               {confirmacion && (
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-500/10 px-3.5 py-2 rounded-xl border border-emerald-500/20 animate-fade-up">
-                  <CheckCircle2 size={16} /> ¡Propuesta registrada con persistencia en localStorage!
+                  <CheckCircle2 size={16} /> ¡Propuesta guardada correctamente!
                 </div>
               )}
             </div>
@@ -1303,12 +1318,14 @@ export default function Planning() {
               </button>
               <button
                 type="submit"
+                disabled={!canWrite || guardando || propuestasCargando}
                 className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-xs font-bold text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer flex items-center gap-2"
               >
-                <Sparkles size={14} /> Guardar Propuesta Cloud
+                <Sparkles size={14} /> {guardando ? 'Guardando…' : 'Guardar Propuesta Cloud'}
               </button>
             </div>
           </div>
+          </fieldset>
         </form>
       </Card>
 
@@ -1318,7 +1335,7 @@ export default function Planning() {
             <h2 className="text-lg font-bold text-ink flex items-center gap-2">
               <ClipboardList size={18} className="text-blue-600" /> Propuestas Registradas ({propuestas.length})
             </h2>
-            <p className="text-xs text-muted">Historial persistido localmente de evaluaciones de arquitectura</p>
+            <p className="text-xs text-muted">Propuestas guardadas en el almacenamiento del modo activo</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1389,7 +1406,8 @@ export default function Planning() {
                         <Eye size={16} />
                       </button>
                       <button
-                        onClick={() => eliminarPropuesta(p.id)}
+                        onClick={() => void eliminarPropuesta(p.id).catch(err => setErrorGuardado(err.message))}
+                        disabled={!canWrite}
                         className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-rose-500/10 hover:text-rose-600 transition-colors"
                         title="Eliminar propuesta"
                       >

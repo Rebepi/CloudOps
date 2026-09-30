@@ -5,11 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    host: true,
+    host: '127.0.0.1',
     port: 27901,
-    allowedHosts: true,
-    headers: {
-      'Content-Security-Policy': "frame-ancestors *"
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/health': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
 })

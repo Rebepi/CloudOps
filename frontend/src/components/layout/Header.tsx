@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, Bell, Download, ShieldCheck, CheckCircle2, AlertTriangle, Globe2, FileText } from 'lucide-react';
 import { useCloud } from '../../context/CloudContext';
+import { useBackend } from '../../context/BackendContext';
 import { regiones } from '../../data/regions';
 import { Modal } from '../ui/Modal';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -44,11 +45,17 @@ const notificacionesIniciales = [
 ];
 
 export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
+  const backend = useBackend();
+  const roleLabel = ({ admin: 'Administrador', viewer: 'Lector', analyst: 'Analista', owner: 'Propietario' } as Record<string, string>)[backend.projectRole ?? ''] ?? 'Sin rol de proyecto';
   const { pathname } = useLocation();
-  const info = titulos[pathname] ?? { titulo: 'CloudOps Dashboard', descripcion: 'Operaciones en la nube' };
+  const baseInfo = titulos[pathname] ?? { titulo: 'CloudOps Dashboard', descripcion: 'Operaciones en la nube' };
+  const info = backend.mode === 'demo' ? baseInfo : { ...baseInfo, descripcion:
+    ['/dashboard', '/operations', '/network', '/infrastructure'].includes(pathname) ? 'Inventario y auditoría consultados al backend'
+    : pathname === '/planning' ? 'Propuestas persistidas y estimaciones de arquitectura'
+    : 'Vista educativa; integración AWS pendiente' };
   const { regionPrincipal, setRegionPrincipal, ambiente, setAmbiente, exportarEstadoJson } = useCloud();
   const [panelNotificaciones, setPanelNotificaciones] = useState(false);
-  const [notificaciones, setNotificaciones] = useState(notificacionesIniciales);
+  const [notificaciones, setNotificaciones] = useState(backend.mode === 'demo' ? notificacionesIniciales : []);
   const [modalReporte, setModalReporte] = useState(false);
   const [visible, setVisible] = useState(true);
 
@@ -112,7 +119,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               <h1 className="truncate text-base sm:text-lg font-bold text-ink">{info.titulo}</h1>
               <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                AWS Health: Operativo
+                {backend.mode === 'api' ? 'Sesión local · API' : 'Demo · simulación'}
               </span>
             </div>
             <p className="hidden truncate text-xs text-muted sm:block">{info.descripcion}</p>
@@ -120,7 +127,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <div className="hidden lg:flex items-center gap-1.5 rounded-xl border border-line bg-canvas p-1 text-xs">
+          {(backend.mode === 'demo' || pathname === '/planning' || pathname === '/costs') && <div className="hidden lg:flex items-center gap-1.5 rounded-xl border border-line bg-canvas p-1 text-xs" title={backend.mode === 'api' ? 'Escenario estimado; no cambia recursos AWS' : undefined}>
             {(['Producción', 'Staging', 'Sandbox'] as const).map((amb) => (
               <button
                 key={amb}
@@ -134,9 +141,9 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
                 {amb}
               </button>
             ))}
-          </div>
+          </div>}
 
-          <div className="hidden sm:block">
+          {(backend.mode === 'demo' || pathname === '/planning' || pathname === '/costs') && <div className="hidden sm:block">
             <Select
               value={regionPrincipal}
               onChange={setRegionPrincipal}
@@ -150,16 +157,17 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               buscable={true}
               alineacionDropdown="derecha"
               anchoMinimo="190px"
-              ariaLabel="Seleccionar región AWS activa"
+              ariaLabel={backend.mode === 'demo' ? 'Seleccionar región AWS activa' : 'Región de estimación'}
             />
-          </div>
+          </div>}
 
           <ThemeToggle />
 
           <button
             onClick={() => setModalReporte(true)}
+            disabled={backend.mode === 'api'}
             className="flex items-center gap-1.5 rounded-xl border border-line bg-card hover:bg-canvas px-3 py-1.5 text-xs font-semibold text-ink shadow-xs transition-colors cursor-pointer"
-            title="Generar e imprimir reporte ejecutivo en PDF"
+            title={backend.mode === 'api' ? 'Reporte operativo pendiente; no se exportan métricas simuladas como reales' : 'Generar reporte educativo en PDF'}
             aria-label="Generar reporte PDF"
           >
             <FileText size={15} className="text-blue-600" />
@@ -168,7 +176,8 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
 
           <button
             onClick={exportarEstadoJson}
-            title="Exportar configuración Cloud en JSON"
+            disabled={backend.mode === 'api'}
+            title={backend.mode === 'api' ? 'Exportación operativa pendiente; no se incluyen costos demo como reales' : 'Exportar configuración de demostración en JSON'}
             className="hidden sm:grid h-9 w-9 place-items-center rounded-xl border border-line text-muted hover:bg-canvas hover:text-ink transition-colors cursor-pointer"
             aria-label="Descargar reporte JSON"
           >
@@ -193,8 +202,8 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               CO
             </div>
             <div className="hidden xl:block text-left">
-              <p className="text-xs font-bold text-ink leading-tight">Admin CloudOps</p>
-              <p className="text-[10px] text-muted">DevOps Lead</p>
+              <p className="text-xs font-bold text-ink leading-tight">{backend.mode === 'api' ? backend.identity?.email : 'Usuario demo'}</p>
+              <p className="text-[10px] text-muted">{backend.mode === 'api' ? roleLabel : 'Sin autenticación'}</p>
             </div>
           </div>
         </div>
@@ -204,7 +213,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
         abierto={panelNotificaciones}
         onCerrar={() => setPanelNotificaciones(false)}
         titulo="Centro de Eventos y Notificaciones"
-        subtitulo="Eventos en tiempo real sincronizados desde CloudWatch y GuardDuty"
+        subtitulo={backend.mode === 'api' ? 'Integración de alertas AWS pendiente; no se muestran eventos simulados.' : 'Eventos simulados para demostración'}
       >
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-muted pb-2 border-b border-line">
@@ -222,7 +231,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
           {notificaciones.length === 0 ? (
             <div className="py-8 text-center text-muted text-xs">
               <ShieldCheck size={32} className="mx-auto mb-2 text-emerald-500 opacity-60" />
-              Sin alertas pendientes. Toda la infraestructura opera dentro de los umbrales normales.
+              {backend.mode === 'api' ? 'No hay una fuente de alertas AWS conectada. Esto no significa que la infraestructura esté libre de alertas.' : 'Sin notificaciones de demostración pendientes.'}
             </div>
           ) : (
             notificaciones.map((n) => (

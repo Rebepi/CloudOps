@@ -40,6 +40,8 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { InfoTooltip } from '../components/ui/InfoTooltip';
 import type { Region } from '../types/cloud';
 import { useCloud } from '../context/CloudContext';
+import { useBackend } from '../context/BackendContext';
+import ConnectedInventory from './ConnectedInventory';
 
 const colorEstado: Record<string, string> = {
   activo: '#10B981',
@@ -104,6 +106,11 @@ const matrizLatencia: Record<string, Record<string, number>> = {
 type TipoProyeccion = 'naturalEarth' | 'orthographic' | 'mercator';
 
 export default function Infrastructure() {
+  const { mode } = useBackend();
+  return mode === 'api' ? <ConnectedInventory view="infrastructure" /> : <DemoInfrastructure />;
+}
+
+function DemoInfrastructure() {
   const { regionPrincipal } = useCloud();
   const [regionSeleccionada, setRegionSeleccionada] = useState<Region>(
     regiones.find((r) => r.id === regionPrincipal) ?? regiones[0]

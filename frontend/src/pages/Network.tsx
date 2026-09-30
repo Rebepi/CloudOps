@@ -19,6 +19,8 @@ import { Card } from '../components/ui/Card';
 import { InfoTooltip } from '../components/ui/InfoTooltip';
 import { useCloud } from '../context/CloudContext';
 import type { LucideIcon } from 'lucide-react';
+import { useBackend } from '../context/BackendContext';
+import ConnectedInventory from './ConnectedInventory';
 
 interface NodoInfo {
   id: string;
@@ -149,6 +151,11 @@ const reglasFirewall = [
 ];
 
 export default function Network() {
+  const { mode } = useBackend();
+  return mode === 'api' ? <ConnectedInventory view="network" /> : <DemoNetwork />;
+}
+
+function DemoNetwork() {
   const { ambiente, regionPrincipal } = useCloud();
   const [nodoActivo, setNodoActivo] = useState<NodoInfo>(nodos[0]);
   const [pasoSimulacion, setPasoSimulacion] = useState<number>(-1);
