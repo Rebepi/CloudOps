@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useCloud } from '../context/CloudContext';
 import { serviciosAWS } from '../data/awsServices';
-import { calcularSubtotalItemCosto } from '../lib/cloudSimulator';
+import { useAws } from '../hooks/useAws';
 import { CostCard } from '../components/CostCard';
 import { Card } from '../components/ui/Card';
 import { StatCard } from '../components/StatCard';
@@ -38,29 +38,8 @@ import { usd } from '../lib/format';
 
 const COLORES = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899'];
 
-const recomendacionesAhorro = [
-  {
-    id: 'rec-1',
-    titulo: 'Adoptar procesadores AWS Graviton3',
-    desc: 'Migrar instancias EC2 t3 a t4g basadas en arquitectura ARM para obtener hasta un 20% más de rendimiento y menor costo por hora.',
-    ahorroMensual: 16.40,
-    categoria: 'Cómputo',
-  },
-  {
-    id: 'rec-2',
-    titulo: 'Habilitar S3 Intelligent-Tiering',
-    desc: 'Mueve automáticamente los objetos no accedidos en 30 días al nivel de acceso poco frecuente sin costo de recuperación.',
-    ahorroMensual: 6.80,
-    categoria: 'Almacenamiento',
-  },
-  {
-    id: 'rec-3',
-    titulo: 'Compromiso Savings Plans a 1 Año',
-    desc: 'Comprometer un uso horario base de cómputo para reducir hasta un 38% la tarifa On-Demand de EC2 y Lambda.',
-    ahorroMensual: 28.50,
-    categoria: 'FinOps',
-  },
-];
+type Quote = { sku: string; serviceCode: string; regionCode: string | null; description: string; unit: string; priceUsd: number; beginRange: string; rateCode: string };
+const priceCodes: Record<string, string> = { ec2: 'AmazonEC2', ebs: 'AmazonEC2', s3: 'AmazonS3', rds: 'AmazonRDS', lambda: 'AWSLambda', dynamodb: 'AmazonDynamoDB', cloudfront: 'AmazonCloudFront', route53: 'AmazonRoute53', cloudwatch: 'AmazonCloudWatch', vpc: 'AmazonVPC', kms: 'awskms', waf: 'awswaf', elb: 'AWSELB' };
 
 export default function Costs() {
   const {
@@ -75,15 +54,21 @@ export default function Costs() {
     exportarEstadoJson,
     ambiente,
     regionPrincipal,
-    multiplicadorAmbiente,
   } = useCloud();
+
+  const costs = useAws<{ start: string; total: number; services: { service: string; amount: number }[]; estimated: boolean }[]>('/aws/costs');
+  const finops = useAws<{ budgets: { name: string; limit?: string; actual?: string; currency?: string }[] | null; budgetsError: string | null; recommendations: { arn?: string; currentType?: string; finding?: string; options: { type?: string; savingsUsd?: number }[] }[] | null; recommendationsError: string | null }>('/aws/finops');
 
   const [servicioId, setServicioId] = useState('ec2');
   const [cantidad, setCantidad] = useState(1);
   const [horasMes, setHorasMes] = useState(730);
-  const [descuentoSavingsPlan, setDescuentoSavingsPlan] = useState(false);
   const [mensajeExito, setMensajeExito] = useState(false);
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('Todas');
+  const [skuSeleccionado, setSkuSeleccionado] = useState('');
+  const priceCode = priceCodes[servicioId];
+  const priceQuery = priceCode ? `/aws/pricing?serviceCode=${priceCode}${servicioId === 'cloudfront' || servicioId === 'route53' ? '' : `&regionCode=${regionPrincipal}`}${servicioId === 'ec2' ? '&instanceType=t3.medium&operatingSystem=Linux&tenancy=Shared&capacitystatus=Used&preInstalledSw=NA' : servicioId === 'rds' ? '&instanceType=db.t3.medium&databaseEngine=PostgreSQL' : ''}` : null;
+  const ofertas = useAws<Quote[]>(priceQuery);
+  const oferta = ofertas.data?.find((q) => q.rateCode === skuSeleccionado) ?? null;
 
   const categoriasFiltro = ['Todas', 'Cómputo', 'Almacenamiento', 'Base de datos', 'Redes', 'Seguridad e identidad'];
 
@@ -92,18 +77,15 @@ export default function Costs() {
     : serviciosAWS.filter((s) => s.categoria === categoriaFiltro);
 
   const servicioActual = serviciosAWS.find((s) => s.id === servicioId) || serviciosAWS[0];
-  const itemSubtotalSinDescuento = calcularSubtotalItemCosto(servicioActual.id, cantidad, horasMes, multiplicadorAmbiente, 1.0);
-  const itemSubtotalCalculado = itemSubtotalSinDescuento * (descuentoSavingsPlan ? 0.72 : 1.0);
-  const itemAhorroCalculado = itemSubtotalSinDescuento - itemSubtotalCalculado;
-
-  const factorDescuento = descuentoSavingsPlan ? 0.72 : 1.0;
-  const costoMensualAjustado = costoMensual * factorDescuento;
+  const itemSubtotalSinDescuento = oferta ? oferta.priceUsd * cantidad * (oferta.unit === 'Hrs' ? horasMes : 1) : 0;
+  const itemSubtotalCalculado = itemSubtotalSinDescuento;
+  const costoMensualAjustado = costoMensual;
   const costoAnualAjustado = costoMensualAjustado * 12;
   const porcentajePresupuesto = Math.min(150, Math.round((costoMensualAjustado / (presupuestoLimite || 1)) * 100));
 
   const itemsConSubtotal = itemsCosto.map((item) => {
     const s = serviciosAWS.find((x) => x.id === item.servicioId);
-    const subtotal = s ? calcularSubtotalItemCosto(item.servicioId, item.cantidad, item.horasMes, multiplicadorAmbiente, factorDescuento) : 0;
+    const subtotal = s && item.precioUnitario != null ? item.precioUnitario * item.cantidad * (item.unidadPrecio === 'Hrs' ? item.horasMes : 1) : 0;
     return { item, servicio: s!, subtotal };
   }).filter((x) => Boolean(x.servicio));
 
@@ -117,21 +99,23 @@ export default function Costs() {
     return acc;
   }, []);
 
+  const gastoReal = costs.data?.reduce((sum, day) => sum + day.total, 0) ?? null;
+  const recomendacionesAhorro = finops.data?.recommendations?.flatMap((r) => r.options.map((option) => ({ id: `${r.arn}:${option.type}`, titulo: `${r.currentType ?? 'EC2'} → ${option.type ?? 'tipo recomendado'}`, desc: `${r.arn ?? 'Instancia EC2'} · ${r.finding ?? 'Recomendación'}`, ahorroMensual: option.savingsUsd ?? 0 }))) ?? [];
   const comparativaCapexOpex = [
-    { concepto: 'Inversión inicial en hardware (Servidores, SAN, Routers)', onPremises: '$18,500 USD', awsCloud: '$0 USD (Cero CapEx)' },
-    { concepto: 'Gasto operativo mensual (Energía, refrigeración, rack)', onPremises: '$650 USD/mes', awsCloud: `${usd(costoMensualAjustado)} (Pagas por lo que usas)` },
-    { concepto: 'Tiempo de aprovisionamiento de nuevos recursos', onPremises: '4 a 8 semanas', awsCloud: 'Segundos (Vía API o CLI)' },
-    { concepto: 'Mantenimiento de hardware y reemplazo de discos', onPremises: 'Responsabilidad propia', awsCloud: 'Gestionado al 100% por AWS' },
+    { concepto: 'Inversión inicial en hardware', onPremises: 'Sin datos locales', awsCloud: 'No evaluado' },
+    { concepto: 'Gasto operativo mensual', onPremises: 'Sin datos locales', awsCloud: gastoReal === null ? 'Consultando Cost Explorer' : `${usd(gastoReal)} registrado en el periodo` },
   ];
 
-  const manejarAgregar = (e: React.FormEvent) => {
+  const manejarAgregar = async (e: React.FormEvent) => {
     e.preventDefault();
-    const serv = serviciosAWS.find((s) => s.id === servicioId);
-    agregarItemCosto({
+    if (!oferta) return;
+    await agregarItemCosto({
       servicioId,
       cantidad,
-      horasMes,
-      configuracion: serv ? `${serv.unidad}` : undefined,
+      horasMes: oferta.unit === 'Hrs' ? horasMes : 1,
+      configuracion: oferta.description,
+      precioUnitario: oferta.priceUsd, unidadPrecio: oferta.unit, skuPrecio: oferta.sku,
+      codigoServicioPrecio: oferta.serviceCode, regionPrecio: oferta.regionCode, fechaPrecio: ofertas.observedAt,
     });
     setMensajeExito(true);
     setTimeout(() => setMensajeExito(false), 3000);
@@ -143,14 +127,13 @@ export default function Costs() {
         <StatCard
           titulo="Costo mensual estimado"
           valor={usd(costoMensualAjustado)}
-          detalle={descuentoSavingsPlan ? `Con 28% desc. · Entorno ${ambiente}` : `Entorno ${ambiente} (${Math.round(multiplicadorAmbiente * 100)}% flota)`}
+          detalle={`Ofertas AWS seleccionadas · ${ambiente}`}
           icono={DollarSign}
           tono="cost"
-          tendencia={descuentoSavingsPlan ? 'Ahorro Savings Plan' : `Flota ${ambiente}`}
-          tendenciaPositiva={descuentoSavingsPlan}
+          tendencia="Estimación local"
           info={{
             titulo: "Cómo se calcula el costo",
-            descripcion: "Fórmula: Precio unitario AWS × Cantidad de unidades × Horas de uso al mes × Multiplicador de entorno (Producción 100%, Staging 45%, Sandbox 18%)."
+            descripcion: "Fórmula: precio de la oferta AWS seleccionada × cantidad × horas mensuales cuando la unidad es Hrs. No incluye otras dimensiones de cobro."
           }}
         />
         <StatCard
@@ -165,14 +148,14 @@ export default function Costs() {
           }}
         />
         <StatCard
-          titulo="Límite de Presupuesto"
+          titulo="Límite de Estimación Local"
           valor={usd(presupuestoLimite)}
           detalle={`${porcentajePresupuesto}% consumido del límite`}
           icono={AlertTriangle}
           tono={porcentajePresupuesto > 90 ? 'alert' : 'safe'}
           info={{
-            titulo: "AWS Budgets — Límite de Gasto",
-            descripcion: "AWS Budgets es un servicio que envía alertas cuando el gasto proyectado supera el umbral configurado. Se recomienda configurar alertas al 80% (preventiva) y al 100% (límite crítico) del presupuesto."
+            titulo: "Límite local",
+            descripcion: "Este límite se guarda en PostgreSQL local. Los presupuestos AWS se consultan por separado."
           }}
         />
         <StatCard
@@ -188,16 +171,29 @@ export default function Costs() {
         />
       </div>
 
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 className="text-base font-bold text-ink">Gasto real de AWS</h3><p className="text-xs text-muted">Cost Explorer · mes actual · {costs.observedAt ? new Date(costs.observedAt).toLocaleString('es-PE') : 'consultando'}</p></div>
+          <span className="text-xl font-extrabold text-ink">{gastoReal === null ? '—' : usd(gastoReal)}</span>
+        </div>
+        {costs.error && <p className="mt-2 text-xs text-rose-600">{costs.error}</p>}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+          {finops.data?.budgets?.map((budget) => <span key={budget.name} className="rounded-lg border border-line px-2 py-1">AWS Budget {budget.name}: {budget.actual ?? '—'} / {budget.limit ?? '—'} {budget.currency ?? ''}</span>)}
+          {finops.data?.budgets?.length === 0 && <span>No hay presupuestos AWS configurados.</span>}
+          {finops.data?.budgetsError && <span className="text-amber-600">Budgets: {finops.data.budgetsError}</span>}
+        </div>
+      </Card>
+
       <Card className="p-5 border-amber-500/20 bg-gradient-to-br from-card to-amber-500/5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-amber-600">
-                Monitoreo de Presupuesto Mensual (AWS Budgets)
+                Límite de Estimación Mensual
               </span>
               <InfoTooltip
                 titulo="Cómo funciona el monitoreo de presupuesto"
-                descripcion="AWS Budgets compara el gasto real vs. el límite configurado. Al superar el 80% se activa una alerta preventiva; al 100% se notifica el agotamiento del presupuesto mensual asignado."
+                descripcion="Compara la estimación local con el límite guardado en este proyecto. No crea alertas en AWS."
               />
               {porcentajePresupuesto > 100 ? (
                 <span className="bg-rose-500/10 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-500/20">
@@ -210,7 +206,7 @@ export default function Costs() {
               )}
             </div>
             <p className="text-sm font-bold text-ink">
-              Gasto Proyectado: {usd(costoMensualAjustado)} de {usd(presupuestoLimite)} USD
+              Estimación local: {usd(costoMensualAjustado)} de {usd(presupuestoLimite)} USD
             </p>
           </div>
 
@@ -270,7 +266,7 @@ export default function Costs() {
                       </h3>
                       <InfoTooltip
                         titulo="Cómo usar la calculadora"
-                        descripcion="Selecciona un servicio AWS, define la cantidad de instancias/unidades y las horas mensuales de uso. La fórmula Precio × Cantidad × Horas calcula el subtotal en tiempo real. Activa Savings Plans para simular descuentos por compromiso de uso."
+                        descripcion="Selecciona una oferta AWS y define cantidad y horas mensuales de uso. El subtotal emplea únicamente la tarifa de esa oferta."
                         size="md"
                       />
                     </div>
@@ -320,12 +316,11 @@ export default function Costs() {
 
                 <Select
                   value={servicioId}
-                  onChange={setServicioId}
+                  onChange={(value) => { setServicioId(value); setSkuSeleccionado(''); }}
                   opciones={serviciosDisponibles.map((s) => ({
                     value: s.id,
                     label: s.nombre,
-                    badge: `${usd(s.precioUnitario)}/${s.unidad}`,
-                    sublabel: `${s.categoria} · Tarifa estándar`,
+                    sublabel: s.categoria,
                   }))}
                   icono={Server}
                   buscable={true}
@@ -342,7 +337,7 @@ export default function Costs() {
                         {servicioActual.categoria}
                       </span>
                       <span className="text-[10px] font-mono text-muted">
-                        SLA {servicioActual.sla}
+                        SLA por verificar
                       </span>
                     </div>
                     {servicioActual.gratisTier && (
@@ -352,9 +347,9 @@ export default function Costs() {
                     )}
                   </div>
                   <div className="flex items-baseline justify-between text-[11px] pt-0.5">
-                    <span className="text-muted">Tarifa unitaria base:</span>
+                    <span className="text-muted">Tarifa seleccionada:</span>
                     <span className="font-mono font-bold text-ink">
-                      {usd(servicioActual.precioUnitario)} <span className="text-[10px] text-muted font-normal">/ {servicioActual.unidad}</span>
+                      {oferta ? usd(oferta.priceUsd) : 'Sin oferta'} <span className="text-[10px] text-muted font-normal">{oferta ? `/ ${oferta.unit}` : ''}</span>
                     </span>
                   </div>
                   <p className="text-[10px] text-muted leading-relaxed border-t border-line/60 pt-1.5 line-clamp-2">
@@ -370,6 +365,16 @@ export default function Costs() {
                   )}
                 </div>
               )}
+
+              <div className="space-y-1">
+                <label className="font-bold text-ink">Oferta AWS Price List</label>
+                {ofertas.loading && <p className="text-muted">Consultando ofertas...</p>}
+                {ofertas.error && <p className="text-rose-600">{ofertas.error}</p>}
+                <select value={skuSeleccionado} onChange={(e) => setSkuSeleccionado(e.target.value)} className="w-full rounded-xl border border-line bg-canvas p-2.5 text-xs text-ink">
+                  <option value="">Selecciona una tarifa real</option>
+                  {ofertas.data?.filter((q) => Number(q.beginRange) === 0).map((q) => <option key={q.rateCode} value={q.rateCode}>{usd(q.priceUsd)} / {q.unit} · {q.description.slice(0, 85)}</option>)}
+                </select>
+              </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -532,52 +537,8 @@ export default function Costs() {
                 />
               </div>
 
-              <div
-                onClick={() => setDescuentoSavingsPlan((prev) => !prev)}
-                className={`p-3 rounded-xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
-                  descuentoSavingsPlan
-                    ? 'border-emerald-500/40 bg-emerald-500/10 shadow-sm'
-                    : 'border-line bg-canvas hover:border-line-2'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors ${
-                      descuentoSavingsPlan
-                        ? 'bg-emerald-500 text-white shadow-xs'
-                        : 'bg-card text-muted border border-line'
-                    }`}
-                  >
-                    <Percent size={14} className="stroke-[2.5]" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-ink text-xs">AWS Savings Plans</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold border ${
-                          descuentoSavingsPlan
-                            ? 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30'
-                            : 'bg-card text-muted border-line'
-                        }`}
-                      >
-                        -28% OFF
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted truncate">Compromiso 1 o 3 años para cómputo</p>
-                  </div>
-                </div>
-
-                <div
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                    descuentoSavingsPlan ? 'bg-emerald-500' : 'bg-line-2'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
-                      descuentoSavingsPlan ? 'translate-x-4' : 'translate-x-0'
-                    }`}
-                  />
-                </div>
+              <div className="p-3 rounded-xl border border-line bg-canvas text-xs text-muted flex items-center gap-2">
+                <Percent size={14} /> Savings Plans: consulta una oferta contratada para aplicar su tarifa. No hay descuento supuesto.
               </div>
 
               <div className="p-3.5 rounded-xl border border-brand/30 bg-gradient-to-br from-brand/8 via-card to-indigo-500/10 space-y-2 shadow-xs">
@@ -592,40 +553,19 @@ export default function Costs() {
 
                 <div className="flex items-baseline justify-between">
                   <div>
-                    {descuentoSavingsPlan ? (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xs line-through text-muted font-mono">
-                          {usd(itemSubtotalSinDescuento)}
-                        </span>
-                        <span className="text-2xl font-black font-mono tracking-tight text-emerald-500">
-                          {usd(itemSubtotalCalculado)}
-                        </span>
-                        <span className="text-[11px] text-muted font-medium">/ mes</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-black font-mono tracking-tight text-brand">
-                          {usd(itemSubtotalSinDescuento)}
-                        </span>
-                        <span className="text-[11px] text-muted font-medium">/ mes</span>
-                      </div>
-                    )}
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black font-mono tracking-tight text-brand">{oferta ? usd(itemSubtotalSinDescuento) : 'Sin oferta'}</span>
+                      <span className="text-[11px] text-muted font-medium">/ mes</span>
+                    </div>
                   </div>
 
-                  {descuentoSavingsPlan ? (
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                      Ahorro: -{usd(itemAhorroCalculado)}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-mono text-muted">
-                      ~{usd(itemSubtotalSinDescuento * 12)} / año
-                    </span>
-                  )}
+                  {oferta && <span className="text-[10px] font-mono text-muted">~{usd(itemSubtotalSinDescuento * 12)} / año</span>}
                 </div>
               </div>
 
               <button
                 type="submit"
+                disabled={!oferta}
                 className="w-full rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 py-3 text-xs font-bold text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-between px-4 cursor-pointer"
               >
                 <div className="flex items-center gap-2">
@@ -639,7 +579,7 @@ export default function Costs() {
 
               {mensajeExito && (
                 <div className="p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 text-[11px] font-bold text-center flex items-center justify-center gap-1.5 animate-fade-up">
-                  <CheckCircle2 size={15} /> ¡Componente incorporado a la cotización con éxito!
+                  <CheckCircle2 size={15} /> Componente con oferta AWS guardado localmente.
                 </div>
               )}
             </form>
@@ -651,7 +591,7 @@ export default function Costs() {
               type="button"
               className="px-3 py-1.5 rounded-xl border border-line bg-canvas hover:bg-card text-blue-600 font-semibold transition-all flex items-center gap-1.5 cursor-pointer hover:shadow-xs"
             >
-              <RotateCcw size={12} /> Restaurar estándar
+              <RotateCcw size={12} /> Consultar ofertas AWS
             </button>
             <button
               onClick={limpiarCostos}
@@ -685,14 +625,14 @@ export default function Costs() {
                 </div>
                 <p className="font-bold text-ink text-sm">Sin servicios en la cotización</p>
                 <p className="text-xs text-muted max-w-xs mt-1 leading-relaxed">
-                  Usa la calculadora interactiva de la izquierda para agregar recursos o restaura la arquitectura estándar.
+                  Agrega componentes locales y selecciona ofertas reales de AWS para cotizarlos.
                 </p>
                 <button
                   type="button"
                   onClick={cargarPresetCostos}
                   className="mt-4 px-3.5 py-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-500 font-bold text-xs hover:bg-blue-600 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
                 >
-                  <RotateCcw size={13} /> Cargar arquitectura estándar
+                  <RotateCcw size={13} /> Consultar ofertas AWS
                 </button>
               </div>
             ) : (
@@ -736,7 +676,7 @@ export default function Costs() {
 
         {itemsConSubtotal.length === 0 ? (
           <Card className="py-10 text-center text-muted text-xs">
-            La lista de costos está vacía. Añade servicios arriba o restaura el preset de referencia.
+            La lista de costos está vacía. Selecciona una oferta AWS para agregar un servicio.
           </Card>
         ) : (
           <div className="space-y-2.5">
@@ -822,6 +762,8 @@ export default function Costs() {
           </p>
 
           <div className="space-y-3">
+            {finops.data?.recommendationsError && <p className="text-xs text-amber-600">Compute Optimizer: {finops.data.recommendationsError}</p>}
+            {!recomendacionesAhorro.length && !finops.loading && <p className="text-xs text-muted">No hay recomendaciones disponibles para esta cuenta.</p>}
             {recomendacionesAhorro.map((rec) => (
               <div key={rec.id} className="p-3 rounded-xl bg-canvas border border-line text-xs space-y-1">
                 <div className="flex items-center justify-between">

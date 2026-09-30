@@ -1,158 +1,110 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { useLocalStorage } from '../hooks/useLocalStorage';
-import { calcularSubtotalItemCosto } from '../lib/cloudSimulator';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { api } from '../lib/api';
 import type { PropuestaCloud, ItemCosto } from '../types/cloud';
 
 export type Ambiente = 'Producción' | 'Staging' | 'Sandbox';
 
 interface CloudState {
   propuestas: PropuestaCloud[];
-  agregarPropuesta: (p: Omit<PropuestaCloud, 'id' | 'creadaEn'>) => void;
-  eliminarPropuesta: (id: string) => void;
-
+  agregarPropuesta: (p: Omit<PropuestaCloud, 'id' | 'creadaEn'>) => Promise<void>;
+  eliminarPropuesta: (id: string) => Promise<void>;
   itemsCosto: ItemCosto[];
-  agregarItemCosto: (i: Omit<ItemCosto, 'id'>) => void;
-  eliminarItemCosto: (id: string) => void;
-  limpiarCostos: () => void;
+  agregarItemCosto: (i: Omit<ItemCosto, 'id'>) => Promise<void>;
+  eliminarItemCosto: (id: string) => Promise<void>;
+  limpiarCostos: () => Promise<void>;
   cargarPresetCostos: () => void;
-
   costoMensual: number;
   costoAnual: number;
   regionPrincipal: string;
   setRegionPrincipal: (r: string) => void;
-
   ambiente: Ambiente;
   setAmbiente: (a: Ambiente) => void;
   multiplicadorAmbiente: number;
-
   presupuestoLimite: number;
   setPresupuestoLimite: (limite: number) => void;
-
   exportarEstadoJson: () => void;
+  cargando: boolean;
+  error: string | null;
+  refrescar: () => Promise<void>;
 }
 
 const Ctx = createContext<CloudState | null>(null);
 
-const presetCostosIniciales: ItemCosto[] = [
-  { id: '1', servicioId: 'ec2', cantidad: 2, horasMes: 730, configuracion: 't3.medium · 2 vCPU · 4GB RAM' },
-  { id: '2', servicioId: 's3', cantidad: 120, horasMes: 1, configuracion: 'S3 Standard · Multi-Region' },
-  { id: '3', servicioId: 'rds', cantidad: 1, horasMes: 730, configuracion: 'db.t3.medium · Multi-AZ PostgreSQL' },
-  { id: '4', servicioId: 'cloudfront', cantidad: 350, horasMes: 1, configuracion: 'CDN Edge Transfer' },
-  { id: '5', servicioId: 'elb', cantidad: 1, horasMes: 730, configuracion: 'Application Load Balancer' },
-];
+function readLegacyArray(key: string): unknown[] {
+  try { const value = JSON.parse(localStorage.getItem(key) ?? '[]'); return Array.isArray(value) ? value : []; }
+  catch { return []; }
+}
 
 export function CloudProvider({ children }: { children: ReactNode }) {
-  const [propuestas, setPropuestas] = useLocalStorage<PropuestaCloud[]>('cops.propuestas', [
-    {
-      id: 'demo-1',
-      nombre: 'Plataforma E-Commerce Multi-AZ',
-      tipoAplicacion: 'Web',
-      descripcion: 'Arquitectura de alta disponibilidad con balanceo de carga, réplica de base de datos y distribución de activos estáticos en CDN.',
-      regionId: 'us-east-1',
-      usuariosEstimados: 25000,
-      disponibilidad: 'alta',
-      serviciosSeleccionados: ['ec2', 's3', 'rds', 'elb', 'cloudfront', 'route53', 'waf'],
-      objetivoMigracion: 'Aumentar disponibilidad',
-      presupuestoMaximo: 250,
-      rtoHoras: 1,
-      rpoMinutos: 15,
-      cumplimiento: ['PCI-DSS', 'SOC 2'],
-      creadaEn: new Date(Date.now() - 86400000 * 2).toISOString(),
-    },
-  ]);
+  const [propuestas, setPropuestas] = useState<PropuestaCloud[]>([]);
+  const [itemsCosto, setItemsCosto] = useState<ItemCosto[]>([]);
+  const [regionPrincipal, setRegion] = useState('us-east-1');
+  const [ambiente, setEnvironment] = useState<Ambiente>('Producción');
+  const [presupuestoLimite, setBudget] = useState(250);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [itemsCosto, setItemsCosto] = useLocalStorage<ItemCosto[]>('cops.costos', presetCostosIniciales);
-  const [regionPrincipal, setRegionPrincipal] = useState<string>('us-east-1');
-  const [ambiente, setAmbiente] = useState<Ambiente>('Producción');
-  const [presupuestoLimite, setPresupuestoLimite] = useState<number>(250);
-
-  const agregarPropuesta: CloudState['agregarPropuesta'] = (p) =>
-    setPropuestas((prev) => [
-      { ...p, id: crypto.randomUUID(), creadaEn: new Date().toISOString() },
-      ...prev,
+  const refrescar = async () => {
+    const [p, c, s] = await Promise.all([
+      api<{ data: PropuestaCloud[] }>('/proposals'),
+      api<{ data: ItemCosto[] }>('/cost-items'),
+      api<{ data: Record<string, unknown> }>('/settings'),
     ]);
+    setPropuestas(p.data);
+    setItemsCosto(c.data);
+    if (typeof s.data.regionPrincipal === 'string') setRegion(s.data.regionPrincipal);
+    if (s.data.ambiente === 'Producción' || s.data.ambiente === 'Staging' || s.data.ambiente === 'Sandbox') setEnvironment(s.data.ambiente);
+    if (typeof s.data.presupuestoLimite === 'number') setBudget(s.data.presupuestoLimite);
+  };
 
-  const eliminarPropuesta = (id: string) =>
-    setPropuestas((prev) => prev.filter((p) => p.id !== id));
-
-  const agregarItemCosto: CloudState['agregarItemCosto'] = (i) =>
-    setItemsCosto((prev) => [...prev, { ...i, id: crypto.randomUUID() }]);
-
-  const eliminarItemCosto = (id: string) =>
-    setItemsCosto((prev) => prev.filter((i) => i.id !== id));
-
-  const limpiarCostos = () => setItemsCosto([]);
-
-  const cargarPresetCostos = () => setItemsCosto(presetCostosIniciales);
-
-  const multiplicadorAmbiente = useMemo(() => {
-    switch (ambiente) {
-      case 'Staging': return 0.45;
-      case 'Sandbox': return 0.18;
-      default: return 1.0;
-    }
-  }, [ambiente]);
-
-  const costoMensual = useMemo(
-    () =>
-      itemsCosto.reduce((total, item) => {
-        return total + calcularSubtotalItemCosto(item.servicioId, item.cantidad, item.horasMes, multiplicadorAmbiente);
-      }, 0),
-    [itemsCosto, multiplicadorAmbiente],
-  );
-
-  const exportarEstadoJson = () => {
-    const data = {
-      sistema: 'CloudOps Dashboard AWS',
-      version: '2.4.0',
-      fechaExportacion: new Date().toISOString(),
-      ambiente,
-      regionPrincipal,
-      presupuestoLimite,
-      costoMensualEstimado: costoMensual,
-      costoAnualEstimado: costoMensual * 12,
-      propuestasRegistradas: propuestas,
-      elementosCosto: itemsCosto,
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        const proposals = readLegacyArray('cops.propuestas');
+        const costItems = readLegacyArray('cops.costos');
+        if (proposals.length || costItems.length) await api('/import/browser', { method: 'POST', body: JSON.stringify({ proposals, costItems }) });
+        await refrescar();
+        setError(null);
+      } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      finally { setCargando(false); }
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    void cargar();
+  }, []);
+
+  const run = async (operation: Promise<unknown>) => {
+    try { await operation; await refrescar(); setError(null); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
+  };
+  const agregarPropuesta: CloudState['agregarPropuesta'] = (p) => run(api('/proposals', { method: 'POST', body: JSON.stringify(p) }));
+  const eliminarPropuesta = (id: string) => run(api(`/proposals/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  const agregarItemCosto: CloudState['agregarItemCosto'] = (i) => run(api('/cost-items', { method: 'POST', body: JSON.stringify(i) }));
+  const eliminarItemCosto = (id: string) => run(api(`/cost-items/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  const limpiarCostos = () => run(api('/cost-items', { method: 'DELETE' }));
+  const cargarPresetCostos = () => window.location.assign('/services');
+  const saveSetting = (key: string, value: unknown) => { void run(api(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) })).catch(() => undefined); };
+  const setRegionPrincipal = (value: string) => { setRegion(value); saveSetting('regionPrincipal', value); };
+  const setAmbiente = (value: Ambiente) => { setEnvironment(value); saveSetting('ambiente', value); };
+  const setPresupuestoLimite = (value: number) => { setBudget(value); saveSetting('presupuestoLimite', value); };
+
+  // La estimación local es distinta del gasto real que devuelve Cost Explorer.
+  const multiplicadorAmbiente = 1;
+  const costoMensual = itemsCosto.reduce((sum, item) => sum +
+    (item.precioUnitario == null ? 0 : item.precioUnitario * item.cantidad * (item.unidadPrecio === 'Hrs' ? item.horasMes : 1)), 0);
+  const exportarEstadoJson = () => {
+    const blob = new Blob([JSON.stringify({ propuestas, itemsCosto, regionPrincipal, ambiente, presupuestoLimite, tipo: 'estimacion_local' }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cloudops-export-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cloudops-local-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <Ctx.Provider
-      value={{
-        propuestas,
-        agregarPropuesta,
-        eliminarPropuesta,
-        itemsCosto,
-        agregarItemCosto,
-        eliminarItemCosto,
-        limpiarCostos,
-        cargarPresetCostos,
-        costoMensual,
-        costoAnual: costoMensual * 12,
-        regionPrincipal,
-        setRegionPrincipal,
-        ambiente,
-        setAmbiente,
-        multiplicadorAmbiente,
-        presupuestoLimite,
-        setPresupuestoLimite,
-        exportarEstadoJson,
-      }}
-    >
-      {children}
-    </Ctx.Provider>
-  );
+  return <Ctx.Provider value={{ propuestas, agregarPropuesta, eliminarPropuesta, itemsCosto, agregarItemCosto, eliminarItemCosto, limpiarCostos, cargarPresetCostos, costoMensual, costoAnual: costoMensual * 12, regionPrincipal, setRegionPrincipal, ambiente, setAmbiente, multiplicadorAmbiente, presupuestoLimite, setPresupuestoLimite, exportarEstadoJson, cargando, error, refrescar }}>{children}</Ctx.Provider>;
 }
 
 export function useCloud() {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('useCloud debe usarse dentro de CloudProvider');
-  return ctx;
+  const context = useContext(Ctx);
+  if (!context) throw new Error('useCloud debe usarse dentro de CloudProvider');
+  return context;
 }

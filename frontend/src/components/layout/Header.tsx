@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Menu, Bell, Download, ShieldCheck, CheckCircle2, AlertTriangle, Globe2, FileText } from 'lucide-react';
+import { Menu, Bell, Download, Globe2, FileText } from 'lucide-react';
 import { useCloud } from '../../context/CloudContext';
-import { regiones } from '../../data/regions';
+import { useAws } from '../../hooks/useAws';
 import { Modal } from '../ui/Modal';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { Select } from '../ui/Select';
@@ -19,36 +19,14 @@ const titulos: Record<string, { titulo: string; descripcion: string }> = {
   '/services': { titulo: 'Catálogo de Servicios AWS', descripcion: 'Especificaciones, SLAs, comandos CLI y comparador técnico' },
 };
 
-const notificacionesIniciales = [
-  {
-    id: 1,
-    titulo: 'Snapshot automático de RDS completado',
-    tiempo: 'Hace 8 min',
-    tipo: 'exito',
-    desc: 'Copia de seguridad cifrada completada en us-east-1 para postgres-prod.',
-  },
-  {
-    id: 2,
-    titulo: 'Alerta de presupuesto CloudWatch',
-    tiempo: 'Hace 45 min',
-    tipo: 'alerta',
-    desc: 'El consumo proyectado del mes alcanzó el 68% del umbral asignado ($250 USD).',
-  },
-  {
-    id: 3,
-    titulo: 'Regla AWS WAF activada',
-    tiempo: 'Hace 2 horas',
-    tipo: 'alerta',
-    desc: 'Se bloquearon 14 peticiones con patrones SQLi dirigidas al Application Load Balancer.',
-  },
-];
-
 export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
   const { pathname } = useLocation();
   const info = titulos[pathname] ?? { titulo: 'CloudOps Dashboard', descripcion: 'Operaciones en la nube' };
   const { regionPrincipal, setRegionPrincipal, ambiente, setAmbiente, exportarEstadoJson } = useCloud();
   const [panelNotificaciones, setPanelNotificaciones] = useState(false);
-  const [notificaciones, setNotificaciones] = useState(notificacionesIniciales);
+  const identity = useAws<{ account: string }>('/aws/identity');
+  const regions = useAws<{ id: string; status: string }[]>('/aws/regions');
+  const events = useAws<{ id: string; name: string; time: string; username: string }[]>(`/aws/events?region=${regionPrincipal}`);
   const [modalReporte, setModalReporte] = useState(false);
   const [visible, setVisible] = useState(true);
 
@@ -112,7 +90,7 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               <h1 className="truncate text-base sm:text-lg font-bold text-ink">{info.titulo}</h1>
               <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                AWS Health: Operativo
+                {identity.data ? `AWS · ${identity.data.account}` : 'AWS · sin conexión'}
               </span>
             </div>
             <p className="hidden truncate text-xs text-muted sm:block">{info.descripcion}</p>
@@ -140,11 +118,11 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
             <Select
               value={regionPrincipal}
               onChange={setRegionPrincipal}
-              opciones={regiones.map((r) => ({
+              opciones={(regions.data ?? [{ id: regionPrincipal, status: 'consultando' }]).filter((r) => r.status !== 'not-opted-in').map((r) => ({
                 value: r.id,
-                label: r.nombre,
+                label: r.id,
                 badge: r.id,
-                sublabel: `${r.latenciaMs}ms latencia · ${r.zonasDisponibilidad} AZs`,
+                sublabel: r.status ?? 'región AWS',
               }))}
               icono={Globe2}
               buscable={true}
@@ -159,11 +137,11 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
           <button
             onClick={() => setModalReporte(true)}
             className="flex items-center gap-1.5 rounded-xl border border-line bg-card hover:bg-canvas px-3 py-1.5 text-xs font-semibold text-ink shadow-xs transition-colors cursor-pointer"
-            title="Generar e imprimir reporte ejecutivo en PDF"
-            aria-label="Generar reporte PDF"
+            title="Generar informe de la cuenta"
+            aria-label="Informe de la cuenta"
           >
             <FileText size={15} className="text-blue-600" />
-            <span className="hidden md:inline">Reporte PDF</span>
+            <span className="hidden md:inline">Informe de la cuenta</span>
           </button>
 
           <button
@@ -181,9 +159,9 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
             aria-label="Notificaciones de infraestructura"
           >
             <Bell size={16} />
-            {notificaciones.length > 0 && (
+            {(events.data?.length ?? 0) > 0 && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
-                {notificaciones.length}
+                {events.data?.length}
               </span>
             )}
           </button>
@@ -193,8 +171,8 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
               CO
             </div>
             <div className="hidden xl:block text-left">
-              <p className="text-xs font-bold text-ink leading-tight">Admin CloudOps</p>
-              <p className="text-[10px] text-muted">DevOps Lead</p>
+              <p className="text-xs font-bold text-ink leading-tight">Cuenta AWS</p>
+              <p className="text-[10px] text-muted">{identity.data?.account ?? 'Sin conectar'}</p>
             </div>
           </div>
         </div>
@@ -204,43 +182,30 @@ export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
         abierto={panelNotificaciones}
         onCerrar={() => setPanelNotificaciones(false)}
         titulo="Centro de Eventos y Notificaciones"
-        subtitulo="Eventos en tiempo real sincronizados desde CloudWatch y GuardDuty"
+        subtitulo="Eventos recientes consultados en CloudTrail"
       >
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-muted pb-2 border-b border-line">
-            <span>{notificaciones.length} alertas recientes</span>
-            {notificaciones.length > 0 && (
-              <button
-                onClick={() => setNotificaciones([])}
-                className="text-blue-600 hover:underline font-medium"
-              >
-                Marcar todas como leídas
-              </button>
-            )}
+            <span>{events.data?.length ?? 0} eventos recientes</span>
           </div>
 
-          {notificaciones.length === 0 ? (
+          {events.error ? <p className="text-sm text-rose-600">{events.error}</p> : !events.data?.length ? (
             <div className="py-8 text-center text-muted text-xs">
-              <ShieldCheck size={32} className="mx-auto mb-2 text-emerald-500 opacity-60" />
-              Sin alertas pendientes. Toda la infraestructura opera dentro de los umbrales normales.
+              {events.loading ? 'Consultando CloudTrail…' : 'CloudTrail no devolvió eventos recientes en esta región.'}
             </div>
           ) : (
-            notificaciones.map((n) => (
+            events.data.map((n) => (
               <div
                 key={n.id}
                 className="flex items-start gap-3 rounded-xl border border-line bg-canvas p-3 transition-colors hover:bg-card"
               >
-                {n.tipo === 'exito' ? (
-                  <CheckCircle2 size={18} className="text-emerald-500 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                )}
+                <Bell size={18} className="text-blue-500 shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-bold text-ink">{n.titulo}</p>
-                    <span className="text-[10px] text-muted shrink-0">{n.tiempo}</span>
+                    <p className="text-xs font-bold text-ink">{n.name}</p>
+                    <span className="text-[10px] text-muted shrink-0">{n.time ? new Date(n.time).toLocaleString('es-PE') : 'Sin fecha'}</span>
                   </div>
-                  <p className="text-xs text-muted mt-1 leading-relaxed">{n.desc}</p>
+                  <p className="text-xs text-muted mt-1 leading-relaxed">{n.username ?? 'Actor no indicado por AWS'}</p>
                 </div>
               </div>
             ))

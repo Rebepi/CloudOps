@@ -6,7 +6,6 @@ import {
   Terminal,
   Copy,
   Check,
-  Plus,
   Server,
   Sparkles,
   Wifi,
@@ -32,10 +31,20 @@ import { useCloud } from '../context/CloudContext';
 import { usePrecios } from '../hooks/usePrecios';
 import { usd } from '../lib/format';
 import type { ServicioAWS } from '../types/cloud';
+import { useAws } from '../hooks/useAws';
+import { api, type AwsResponse } from '../lib/api';
+
+type Quote = { sku: string; serviceCode: string; regionCode: string | null; description: string; product: string; priceUsd: number; unit: string; rateCode: string; beginRange: string; endRange: string };
+const codes: Record<string, string> = { ec2: 'AmazonEC2', ebs: 'AmazonEC2', s3: 'AmazonS3', rds: 'AmazonRDS', lambda: 'AWSLambda', dynamodb: 'AmazonDynamoDB', cloudfront: 'AmazonCloudFront', route53: 'AmazonRoute53', cloudwatch: 'AmazonCloudWatch', vpc: 'AmazonVPC', kms: 'awskms', waf: 'awswaf', elb: 'AWSELB' };
 
 export default function Services() {
   const navigate = useNavigate();
-  const { agregarItemCosto } = useCloud();
+  const { agregarItemCosto, regionPrincipal } = useCloud();
+  const usage = useAws<{ resources: Record<string, { items: unknown[]; truncated: boolean }>; errors: Record<string, string> }>(`/aws/services?region=${regionPrincipal}`);
+  const inventory = useAws<{ instances: unknown[]; databases: unknown[] }>(`/aws/inventory?region=${regionPrincipal}`);
+  const buckets = useAws<unknown[]>('/aws/buckets');
+  const network = useAws<{ vpcs: unknown[] }>(`/aws/network?region=${regionPrincipal}`);
+  const security = useAws<{ identities: unknown[]; roles: unknown[] }>(`/aws/security?region=${regionPrincipal}`);
   const { precios, cargando: cargandoPrecios, refrescar: refrescarPrecios } = usePrecios();
   const [busqueda, setBusqueda] = useState('');
   const [categoria, setCategoria] = useState<string>('Todas');
@@ -46,6 +55,40 @@ export default function Services() {
   const [modalComparacion, setModalComparacion] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [mensajeToast, setMensajeToast] = useState<string | null>(null);
+  const [ofertas, setOfertas] = useState<Quote[] | null>(null);
+  const [cargandoOfertas, setCargandoOfertas] = useState(false);
+  const [errorOfertas, setErrorOfertas] = useState<string | null>(null);
+  const [fechaOfertas, setFechaOfertas] = useState<string>();
+  const [filtroOferta, setFiltroOferta] = useState('');
+  const [cantidadOferta, setCantidadOferta] = useState(1);
+  const [horasOferta, setHorasOferta] = useState(730);
+
+  const countFor = (id: string) => id === 'ec2' ? inventory.data?.instances.length : id === 'rds' ? inventory.data?.databases.length : id === 's3' ? buckets.data?.length : id === 'vpc' ? network.data?.vpcs.length : id === 'iam' ? (security.data ? security.data.identities.length + security.data.roles.length : undefined) : usage.data?.resources[id]?.items.length;
+  const catalogo = serviciosAWS.map((s) => ({ ...s, enUso: (countFor(s.id) ?? 0) > 0 }));
+
+  const inspeccionar = async (s: ServicioAWS) => {
+    setServicioSeleccionado(s); setOfertas(null); setErrorOfertas(null); setFiltroOferta('');
+    const code = codes[s.id];
+    if (!code) return;
+    const query = new URLSearchParams({ serviceCode: code });
+    if (s.id !== 'cloudfront' && s.id !== 'route53') query.set('regionCode', regionPrincipal);
+    if (s.id === 'ec2') Object.entries({ instanceType: 't3.medium', operatingSystem: 'Linux', tenancy: 'Shared', capacitystatus: 'Used', preInstalledSw: 'NA' }).forEach(([key, value]) => query.set(key, value));
+    if (s.id === 'rds') { query.set('instanceType', 'db.t3.medium'); query.set('databaseEngine', 'PostgreSQL'); }
+    setCargandoOfertas(true);
+    try { const result = await api<AwsResponse<Quote[]>>(`/aws/pricing?${query}`); setOfertas(result.data); setFechaOfertas(result.observedAt); }
+    catch (error) { setErrorOfertas(error instanceof Error ? error.message : String(error)); }
+    finally { setCargandoOfertas(false); }
+  };
+
+  const agregarOferta = async (s: ServicioAWS, q: Quote) => {
+    if (Number(q.beginRange) > 0) { setErrorOfertas('Selecciona una tarifa del primer tramo.'); return; }
+    try {
+      await agregarItemCosto({ servicioId: s.id, cantidad: cantidadOferta, horasMes: q.unit === 'Hrs' ? horasOferta : 1, configuracion: q.description,
+        precioUnitario: q.priceUsd, unidadPrecio: q.unit, skuPrecio: q.sku, codigoServicioPrecio: q.serviceCode, regionPrecio: q.regionCode, fechaPrecio: fechaOfertas });
+      setMensajeToast(`${s.nombre}: oferta ${q.sku} añadida a Costos.`);
+      setErrorOfertas(null);
+    } catch (error) { setErrorOfertas(error instanceof Error ? error.message : String(error)); }
+  };
 
   const alternarComparar = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -57,24 +100,13 @@ export default function Services() {
     }
   };
 
-  const anadirACostos = (s: ServicioAWS) => {
-    agregarItemCosto({
-      servicioId: s.id,
-      cantidad: 1,
-      horasMes: 730,
-      configuracion: `${s.unidad}`,
-    });
-    setMensajeToast(`¡${s.nombre} añadido a la calculadora de costos!`);
-    setTimeout(() => setMensajeToast(null), 3000);
-  };
-
   const copiarComando = (cmd: string) => {
     navigator.clipboard.writeText(cmd);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 2000);
   };
 
-  const visibles = serviciosAWS.filter((s) => {
+  const visibles = catalogo.filter((s) => {
     const coincideTexto =
       s.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
       s.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -85,17 +117,17 @@ export default function Services() {
     return coincideTexto && coincideCategoria && coincideEnUso && coincideGratis;
   });
 
-  const serviciosParaComparar = serviciosAWS.filter((s) => serviciosComparar.includes(s.id));
+  const serviciosParaComparar = catalogo.filter((s) => serviciosComparar.includes(s.id));
 
-  const getPrecio = (s: ServicioAWS) => precios[s.id] ?? { precio: s.precioUnitario, fuente: 'estatico' as const };
+  const getPrecio = (s: ServicioAWS) => precios[s.id] ?? { precio: null, fuente: 'sin_cotizacion' as const };
 
   const BadgePrecio = ({ servicioId }: { servicioId: string }) => {
     const info = precios[servicioId];
     if (cargandoPrecios) return (
       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-500/10 text-muted border border-line animate-pulse">cargando…</span>
     );
-    if (!info || info.fuente === 'estatico') return (
-      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">Oficial AWS</span>
+    if (!info) return (
+      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">Sin cotización</span>
     );
     return (
       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 flex items-center gap-0.5">
@@ -127,7 +159,7 @@ export default function Services() {
           {!cargandoPrecios && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
               <Wifi size={13} />
-              Precios conectados a AWS API
+              Ofertas verificadas cuando estén disponibles
               <InfoTooltip
                 titulo="AWS Pricing API"
                 descripcion="Conexión en tiempo real con los endpoints oficiales del API de Precios de AWS para cotizaciones actualizadas según la región."
@@ -291,14 +323,14 @@ export default function Services() {
               <ServiceCard
                 key={servicio.id}
                 servicio={servicio}
-                onClick={() => setServicioSeleccionado(servicio)}
+                onClick={() => void inspeccionar(servicio)}
                 precioInfo={getPrecio(servicio)}
                 cargandoPrecio={cargandoPrecios}
                 enComparar={estaEnComparar}
                 onComparar={(e) => alternarComparar(servicio.id, e)}
                 onAnadirCosto={(e) => {
                   e.stopPropagation();
-                  anadirACostos(servicio);
+                  void inspeccionar(servicio);
                 }}
               />
             );
@@ -310,7 +342,7 @@ export default function Services() {
         abierto={!!servicioSeleccionado}
         onCerrar={() => setServicioSeleccionado(null)}
         titulo={servicioSeleccionado?.nombre ?? ''}
-        subtitulo={`Categoría: ${servicioSeleccionado?.categoria} · SLA ${servicioSeleccionado?.sla || '99.9%'}`}
+        subtitulo={`Categoría: ${servicioSeleccionado?.categoria}`}
         tamano="lg"
       >
         {servicioSeleccionado && (
@@ -331,21 +363,21 @@ export default function Services() {
                   />
                 </div>
                 <p className="font-bold text-amber-600 text-sm">
-                  {usd(getPrecio(servicioSeleccionado).precio)}
+                  {getPrecio(servicioSeleccionado).precio === null ? 'Sin cotización' : usd(getPrecio(servicioSeleccionado).precio!)}
                 </p>
                 <p className="text-[10px] text-muted">por {servicioSeleccionado.unidad}</p>
               </div>
 
               <div className="p-3 rounded-xl bg-canvas border border-line">
                 <div className="flex items-center gap-1 mb-1">
-                  <p className="text-[10px] text-muted">SLA Oficial</p>
+                  <p className="text-[10px] text-muted">SLA</p>
                   <InfoTooltip
                     titulo="SLA Oficial"
                     descripcion="Compromiso contractual de disponibilidad mensual garantizado por AWS con créditos de servicio si no se cumple el umbral."
                   />
                 </div>
-                <p className="font-bold text-emerald-600 text-sm">{servicioSeleccionado.sla || '99.9%'}</p>
-                <p className="text-[10px] text-muted">Disponibilidad contractual</p>
+                <p className="font-bold text-emerald-600 text-sm">Por verificar</p>
+                <p className="text-[10px] text-muted">Consulta el acuerdo del servicio AWS</p>
               </div>
 
               <div className="p-3 rounded-xl bg-canvas border border-line">
@@ -390,16 +422,28 @@ export default function Services() {
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-4 border-t border-line">
-              <button
-                onClick={() => {
-                  anadirACostos(servicioSeleccionado);
-                  setServicioSeleccionado(null);
-                }}
-                className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:from-blue-500 hover:to-indigo-500 transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus size={15} /> Añadir al Estimado de Costos
-              </button>
+            <div className="border-t border-line pt-4 space-y-3">
+              <p className="font-bold text-ink">Ofertas AWS para {regionPrincipal}</p>
+              {cargandoOfertas && <p className="text-muted">Consultando AWS Price List...</p>}
+              {errorOfertas && <p className="text-rose-600">{errorOfertas}</p>}
+              {ofertas && <>
+                <div className="flex flex-wrap gap-2">
+                  <input type="number" min="1" value={cantidadOferta} onChange={(e) => setCantidadOferta(Number(e.target.value))} aria-label="Cantidad" className="w-24 rounded border border-line bg-canvas p-2 text-ink" />
+                  <input type="number" min="0" max="744" value={horasOferta} onChange={(e) => setHorasOferta(Number(e.target.value))} aria-label="Horas mensuales" className="w-24 rounded border border-line bg-canvas p-2 text-ink" />
+                  <input value={filtroOferta} onChange={(e) => setFiltroOferta(e.target.value)} placeholder="Filtrar ofertas" className="min-w-36 flex-1 rounded border border-line bg-canvas p-2 text-ink" />
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {ofertas.filter((q) => `${q.product} ${q.description} ${q.sku}`.toLowerCase().includes(filtroOferta.toLowerCase())).map((q) => <div key={q.rateCode} className="rounded-xl border border-line p-3">
+                    <p className="font-bold text-ink">{usd(q.priceUsd)} / {q.unit} · {q.description}</p>
+                    <p className="text-muted">SKU {q.sku} · rango {q.beginRange}–{q.endRange}</p>
+                    <button onClick={() => void agregarOferta(servicioSeleccionado, q)} className="mt-1 text-blue-600 font-bold">Usar en Costos</button>
+                  </div>)}
+                  {!ofertas.length && <p className="text-muted">No hay ofertas para esta consulta.</p>}
+                </div>
+              </>}
+            </div>
+
+            <div className="flex items-center justify-end pt-4 border-t border-line">
 
               <button
                 onClick={() => setServicioSeleccionado(null)}
@@ -443,7 +487,7 @@ export default function Services() {
                 {serviciosParaComparar.map((s) => (
                   <td key={s.id} className="py-3">
                     <span className="font-mono font-bold text-amber-600">
-                      {usd(getPrecio(s).precio)}
+                      {getPrecio(s).precio === null ? 'Sin cotización' : usd(getPrecio(s).precio!)}
                     </span>
                     <span className="text-[10px] text-muted font-normal"> / {s.unidad}</span>
                     <div className="mt-1">
@@ -455,7 +499,7 @@ export default function Services() {
               <tr>
                 <td className="py-3 font-semibold text-muted">SLA Oficial</td>
                 {serviciosParaComparar.map((s) => (
-                  <td key={s.id} className="py-3 font-semibold text-emerald-600">{s.sla || '99.9%'}</td>
+                  <td key={s.id} className="py-3 font-semibold text-muted">Por verificar</td>
                 ))}
               </tr>
               <tr>

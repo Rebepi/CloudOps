@@ -66,8 +66,8 @@ const grupos: GrupoNav[] = [
         to: '/infrastructure',
         texto: 'Infraestructura',
         icono: Globe2,
-        badge: '8 Reg',
-        descripcion: 'Globo 3D y cableado transoceánico',
+        badge: 'AWS',
+        descripcion: 'Regiones y zonas de disponibilidad AWS',
         colorTono: 'from-cyan-400 to-blue-600',
         gradientFrom: '#22d3ee',
         gradientTo: '#2563eb',
@@ -82,8 +82,8 @@ const grupos: GrupoNav[] = [
         to: '/planning',
         texto: 'Planificación Cloud',
         icono: ClipboardList,
-        badge: 'WAF',
-        descripcion: 'Formulador Well-Architected',
+        badge: null,
+        descripcion: 'Formulador de propuestas locales',
         colorTono: 'from-violet-500 to-purple-600',
         gradientFrom: '#8b5cf6',
         gradientTo: '#9333ea',
@@ -580,7 +580,7 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
                     className={`${porcentaje > 85 ? 'text-rose-400' : 'text-amber-400'} transition-colors`}
                   />
                   <span className="text-[11px] font-bold text-slate-200">
-                    Presupuesto OpEx
+                    Estimación cotizada
                   </span>
                 </div>
                 <span
@@ -635,14 +635,14 @@ export function Sidebar({ abierto, onCerrar, colapsado, onToggleColapsar }: Side
               >
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                   <Cpu size={11} className="text-blue-400 shrink-0" />
-                  <span>{propuestas.length} Propuestas activas</span>
+                  <span>{propuestas.length} Propuestas guardadas</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400">
                   <span
                     className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"
                     style={{ boxShadow: '0 0 8px rgba(52,211,153,0.9)' }}
                   />
-                  <span>AWS OK</span>
+                  <span>Local</span>
                 </div>
               </div>
             </div>

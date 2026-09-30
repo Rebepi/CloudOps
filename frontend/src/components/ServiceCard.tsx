@@ -19,7 +19,7 @@ interface Props {
   seleccionado?: boolean;
   onToggle?: () => void;
   onClick?: () => void;
-  precioInfo?: { precio: number; fuente: 'live' | 'estatico' };
+  precioInfo?: { precio: number | null; fuente: 'live' | 'sin_cotizacion' };
   cargandoPrecio?: boolean;
   // Acciones opcionales de la página Services
   enComparar?: boolean;
@@ -89,13 +89,13 @@ export function ServiceCard({
             )}
             <StatusBadge
               nivel={servicio.enUso ? 'correcto' : 'revision'}
-              texto={servicio.enUso ? 'En uso' : 'No utilizado'}
+              texto={servicio.enUso ? 'En uso' : 'Sin recursos'}
             />
           </div>
         ) : (
           <StatusBadge
-            nivel={servicio.enUso ? 'correcto' : 'revision'}
-            texto={servicio.enUso ? 'En uso' : 'No utilizado'}
+            nivel={onToggle ? (seleccionado ? 'correcto' : 'revision') : (servicio.enUso ? 'correcto' : 'revision')}
+            texto={onToggle ? (seleccionado ? 'Seleccionado' : 'Disponible') : (servicio.enUso ? 'En uso' : 'Sin recursos')}
           />
         )}
       </div>
@@ -106,7 +106,7 @@ export function ServiceCard({
         <div className="mt-auto pt-2.5 border-t border-line/60 flex items-center justify-between text-xs">
           <div className="flex items-center gap-1.5">
             <span className="font-mono font-bold text-amber-600">
-              {usd(precioInfo.precio)}
+              {precioInfo.precio === null ? 'Sin cotización' : usd(precioInfo.precio)}
             </span>
             <span className="text-[10px] text-muted">/ {servicio.unidad}</span>
           </div>
@@ -122,7 +122,7 @@ export function ServiceCard({
               </span>
             ) : (
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
-                Oficial AWS
+                Sin cotización
               </span>
             )}
           </div>

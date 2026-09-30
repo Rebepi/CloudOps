@@ -4,17 +4,13 @@ import {
   Globe2,
   Layers,
   Leaf,
-  ShieldCheck,
-  CheckCircle2,
   Activity,
   RefreshCw,
   Compass,
   MapPin,
-  Flame,
   Radio,
   Play,
   Pause,
-  Server,
   Building2,
   Waves,
   RotateCw,
@@ -27,12 +23,12 @@ import {
   geoPath,
   geoGraticule10,
   geoDistance,
-  geoInterpolate,
   type GeoProjection,
 } from 'd3-geo';
 import landData from 'world-atlas/land-110m.json';
 import countriesData from 'world-atlas/countries-110m.json';
-import { regiones } from '../data/regions';
+import { regionGeometry } from '../data/regionGeometry';
+import { useAws } from '../hooks/useAws';
 import { RegionCard } from '../components/RegionCard';
 import { Card } from '../components/ui/Card';
 import { StatCard } from '../components/StatCard';
@@ -47,82 +43,45 @@ const colorEstado: Record<string, string> = {
   inactivo: '#EF4444',
 };
 
-const edgeLocations = [
-  { id: 'pop-nyc', ciudad: 'Nueva York', pais: 'EE.UU.', gps: [-74.006, 40.7128] as [number, number] },
-  { id: 'pop-chi', ciudad: 'Chicago', pais: 'EE.UU.', gps: [-87.6298, 41.8781] as [number, number] },
-  { id: 'pop-lax', ciudad: 'Los Ángeles', pais: 'EE.UU.', gps: [-118.2437, 34.0522] as [number, number] },
-  { id: 'pop-dfw', ciudad: 'Dallas', pais: 'EE.UU.', gps: [-96.797, 32.7767] as [number, number] },
-  { id: 'pop-sea', ciudad: 'Seattle', pais: 'EE.UU.', gps: [-122.3321, 47.6062] as [number, number] },
-  { id: 'pop-mia', ciudad: 'Miami', pais: 'EE.UU.', gps: [-80.1918, 25.7617] as [number, number] },
-  { id: 'pop-tor', ciudad: 'Toronto', pais: 'Canadá', gps: [-79.3832, 43.6532] as [number, number] },
-  { id: 'pop-mex', ciudad: 'Ciudad de México', pais: 'México', gps: [-99.1332, 19.4326] as [number, number] },
-  { id: 'pop-bog', ciudad: 'Bogotá', pais: 'Colombia', gps: [-74.0721, 4.711] as [number, number] },
-  { id: 'pop-lim', ciudad: 'Lima', pais: 'Perú', gps: [-77.0428, -12.0464] as [number, number] },
-  { id: 'pop-scl', ciudad: 'Santiago', pais: 'Chile', gps: [-70.6693, -33.4489] as [number, number] },
-  { id: 'pop-bue', ciudad: 'Buenos Aires', pais: 'Argentina', gps: [-58.3816, -34.6037] as [number, number] },
-  { id: 'pop-rio', ciudad: 'Río de Janeiro', pais: 'Brasil', gps: [-43.1729, -22.9068] as [number, number] },
-  { id: 'pop-lon', ciudad: 'Londres', pais: 'Reino Unido', gps: [-0.1278, 51.5074] as [number, number] },
-  { id: 'pop-par', ciudad: 'París', pais: 'Francia', gps: [2.3522, 48.8566] as [number, number] },
-  { id: 'pop-mad', ciudad: 'Madrid', pais: 'España', gps: [-3.7038, 40.4168] as [number, number] },
-  { id: 'pop-ams', ciudad: 'Ámsterdam', pais: 'Países Bajos', gps: [4.9041, 52.3676] as [number, number] },
-  { id: 'pop-sto', ciudad: 'Estocolmo', pais: 'Suecia', gps: [18.0686, 59.3293] as [number, number] },
-  { id: 'pop-mil', ciudad: 'Milán', pais: 'Italia', gps: [9.19, 45.4642] as [number, number] },
-  { id: 'pop-dxb', ciudad: 'Dubái', pais: 'EAU', gps: [55.2708, 25.2048] as [number, number] },
-  { id: 'pop-bom', ciudad: 'Bombay', pais: 'India', gps: [72.8777, 19.076] as [number, number] },
-  { id: 'pop-hkg', ciudad: 'Hong Kong', pais: 'China', gps: [114.1694, 22.3193] as [number, number] },
-  { id: 'pop-sel', ciudad: 'Seúl', pais: 'Corea del Sur', gps: [126.978, 37.5665] as [number, number] },
-  { id: 'pop-bkk', ciudad: 'Bangkok', pais: 'Tailandia', gps: [100.5018, 13.7563] as [number, number] },
-  { id: 'pop-jnb', ciudad: 'Johannesburgo', pais: 'Sudáfrica', gps: [28.0473, -26.2041] as [number, number] },
-  { id: 'pop-nbo', ciudad: 'Nairobi', pais: 'Kenia', gps: [36.8219, -1.2921] as [number, number] },
-  { id: 'pop-syd', ciudad: 'Melbourne', pais: 'Australia', gps: [144.9631, -37.8136] as [number, number] },
-  { id: 'pop-akl', ciudad: 'Auckland', pais: 'Nueva Zelanda', gps: [174.7633, -36.8485] as [number, number] },
-];
-
-const enlacesBackbone = [
-  { de: 'us-east-1', a: 'us-west-2', nombre: 'Trans-US Terrestrial 400GbE', latencia: 68 },
-  { de: 'us-east-1', a: 'sa-east-1', nombre: 'Monet Submarine Cable', latencia: 112 },
-  { de: 'us-east-1', a: 'eu-west-1', nombre: 'MAREA Transatlantic', latencia: 74 },
-  { de: 'eu-west-1', a: 'eu-central-1', nombre: 'Euro-Ring Dark Fiber', latencia: 18 },
-  { de: 'eu-central-1', a: 'ap-southeast-1', nombre: 'SEA-ME-WE Submarine', latencia: 170 },
-  { de: 'ap-southeast-1', a: 'ap-northeast-1', nombre: 'SJC2 Asia Submarine', latencia: 64 },
-  { de: 'ap-northeast-1', a: 'us-west-2', nombre: 'Jupiter Transpacific', latencia: 104 },
-  { de: 'ap-southeast-1', a: 'ap-southeast-2', nombre: 'Indigo-West Submarine', latencia: 92 },
-  { de: 'us-west-2', a: 'ap-southeast-2', nombre: 'Southern Cross NEXT', latencia: 158 },
-];
-
-const matrizLatencia: Record<string, Record<string, number>> = {
-  'us-east-1': { 'us-west-2': 68, 'sa-east-1': 112, 'eu-west-1': 74, 'eu-central-1': 86, 'ap-southeast-1': 210, 'ap-northeast-1': 158, 'ap-southeast-2': 218 },
-  'sa-east-1': { 'us-east-1': 112, 'us-west-2': 148, 'eu-west-1': 156, 'eu-central-1': 172, 'ap-southeast-1': 295, 'ap-northeast-1': 270, 'ap-southeast-2': 310 },
-  'us-west-2': { 'us-east-1': 68, 'sa-east-1': 148, 'eu-west-1': 132, 'eu-central-1': 144, 'ap-southeast-1': 165, 'ap-northeast-1': 104, 'ap-southeast-2': 158 },
-  'eu-west-1': { 'us-east-1': 74, 'sa-east-1': 156, 'us-west-2': 132, 'eu-central-1': 18, 'ap-southeast-1': 185, 'ap-northeast-1': 210, 'ap-southeast-2': 280 },
-  'eu-central-1': { 'us-east-1': 86, 'sa-east-1': 172, 'us-west-2': 144, 'eu-west-1': 18, 'ap-southeast-1': 170, 'ap-northeast-1': 225, 'ap-southeast-2': 290 },
-  'ap-southeast-1': { 'us-east-1': 210, 'sa-east-1': 295, 'us-west-2': 165, 'eu-west-1': 185, 'eu-central-1': 170, 'ap-northeast-1': 64, 'ap-southeast-2': 92 },
-  'ap-northeast-1': { 'us-east-1': 158, 'sa-east-1': 270, 'us-west-2': 104, 'eu-west-1': 210, 'eu-central-1': 225, 'ap-southeast-1': 64, 'ap-southeast-2': 128 },
-  'ap-southeast-2': { 'us-east-1': 218, 'sa-east-1': 310, 'us-west-2': 158, 'eu-west-1': 280, 'eu-central-1': 290, 'ap-southeast-1': 92, 'ap-northeast-1': 128 },
-};
-
 type TipoProyeccion = 'naturalEarth' | 'orthographic' | 'mercator';
 
 export default function Infrastructure() {
   const { regionPrincipal } = useCloud();
-  const [regionSeleccionada, setRegionSeleccionada] = useState<Region>(
-    regiones.find((r) => r.id === regionPrincipal) ?? regiones[0]
-  );
+  const regionList = useAws<{ id: string; status: string }[]>('/aws/regions');
+  const regiones: Region[] = (regionList.data ?? []).flatMap((entry) => {
+    const geo = regionGeometry[entry.id];
+    if (!geo) return [];
+    return [{ id: entry.id, nombre: geo.name, ubicacion: geo.name, continente: geo.continent,
+      zonasDisponibilidad: Number.NaN, serviciosDesplegados: [], estado: entry.status === 'not-opted-in' ? 'inactivo' as const : 'activo' as const,
+      latenciaMs: Number.NaN, principal: entry.id === regionPrincipal, coordenadas: { x: 0, y: 0 }, gps: geo.gps }];
+  });
+  const [regionSeleccionada, setRegionSeleccionada] = useState<Region>(() => {
+    const geo = regionGeometry[regionPrincipal] ?? regionGeometry['us-east-1'];
+    return { id: regionPrincipal, nombre: geo.name, ubicacion: geo.name, continente: geo.continent,
+      zonasDisponibilidad: Number.NaN, serviciosDesplegados: [], estado: 'revision', latenciaMs: Number.NaN,
+      principal: true, coordenadas: { x: 0, y: 0 }, gps: geo.gps };
+  });
+  const detail = useAws<{ inventory?: { zones: { id: string; name: string; state: string; type: string }[]; instances: { id: string; zone: string }[]; databases: { id: string; zone: string }[] }; network?: { vpcs: { id: string }[]; subnets: { id: string; zone: string }[] }; services?: { resources: Record<string, { items: { id: string }[] }> }; errors: Record<string, string> }>(`/aws/regions/${regionSeleccionada.id}/detail`);
+  const [zoneId, setZoneId] = useState<string | null>(null);
+  const zoneDetail = useAws<{ zone: { id: string; name: string; state: string }; instances: { id: string }[]; databases: { id: string }[]; subnets: { id: string; cidr: string }[] }>(zoneId ? `/aws/regions/${regionSeleccionada.id}/zones/${zoneId}` : null);
+  useEffect(() => {
+    const current = regiones.find((r) => r.id === regionSeleccionada.id);
+    if (current) setRegionSeleccionada(current);
+  }, [regionList.data]);
   const [continenteFiltro, setContinenteFiltro] = useState<string>('Todos');
-  const [capaMapa, setCapaMapa] = useState<'regiones' | 'backbone' | 'edge'>('backbone');
+
   const [tipoProyeccion, setTipoProyeccion] = useState<TipoProyeccion>('orthographic');
   const [rotacion, setRotacion] = useState<{ x: number; y: number }>({ x: 20, y: -10 });
   const [arrastrando, setArrastrando] = useState<boolean>(false);
   const [cooldownRestante, setCooldownRestante] = useState<number>(0);
   const [autoRotar, setAutoRotar] = useState<boolean>(true);
-  const [tiempoRed, setTiempoRed] = useState(0);
-  const [simulandoFallo, setSimulandoFallo] = useState(false);
+
   const { latenciaMs: pingVivo, estadoPing, esDatoReal: pingEsReal, medir: medirPing } =
     useLatencia(regionSeleccionada.id, regionSeleccionada.latenciaMs);
   const probandoPing = estadoPing === 'midiendo';
-  const [popHover, setPopHover] = useState<{ ciudad: string; pais: string } | null>(null);
+
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [hoveredCable, setHoveredCable] = useState<string | null>(null);
+
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   useEffect(() => {
@@ -155,9 +114,16 @@ export default function Infrastructure() {
   const [cooldownArc, setCooldownArc] = useState<number>(0);
 
   const activas = regiones.filter((r) => r.estado === 'activo').length;
-  const totalZonas = regiones.reduce((s, r) => s + r.zonasDisponibilidad, 0);
+  const totalZonas = detail.data?.inventory?.zones.length ?? 0;
 
-  const regionesFiltradas = regiones.filter(
+  const regionesConDetalle = regiones.map((r) => r.id === regionSeleccionada.id ? {
+    ...r,
+    datosConsultados: Boolean(detail.data),
+    zonasDisponibilidad: detail.data?.inventory?.zones.length ?? Number.NaN,
+    serviciosDesplegados: detail.data?.services ? Object.entries(detail.data.services.resources).filter(([, value]) => value.items.length > 0).map(([key]) => key) : [],
+    latenciaMs: pingVivo ?? Number.NaN,
+  } : r);
+  const regionesFiltradas = regionesConDetalle.filter(
     (r) => continenteFiltro === 'Todos' || r.continente === continenteFiltro
   );
 
@@ -170,6 +136,7 @@ export default function Infrastructure() {
 
   const centrarEnRegion = (r: Region) => {
     setRegionSeleccionada(r);
+    setZoneId(null);
     if (tipoProyeccion !== 'orthographic') return;
     flyToTargetRef.current = {
       x: (-r.gps[0] + 360) % 360,
@@ -271,7 +238,6 @@ export default function Infrastructure() {
       }
 
       startTransition(() => {
-        setTiempoRed(timestamp / 1000);
         if (siguienteRotacion) setRotacion(siguienteRotacion);
         if (siguienteArc !== null) setCooldownArc(siguienteArc);
         if (siguienteRestante !== null) setCooldownRestante(siguienteRestante);
@@ -413,25 +379,6 @@ export default function Infrastructure() {
     return geoPathGenerator({ type: 'Sphere' }) || '';
   }, [geoPathGenerator]);
 
-  const enlacesFeatures = useMemo(() => {
-    return enlacesBackbone.map((cable, idx) => {
-      const rOrigen = regiones.find((r) => r.id === cable.de);
-      const rDestino = regiones.find((r) => r.id === cable.a);
-      if (!rOrigen || !rDestino) return null;
-      return {
-        cable,
-        idx,
-        rOrigen,
-        rDestino,
-        interpolar: geoInterpolate(rOrigen.gps, rDestino.gps),
-        geoJson: {
-          type: 'LineString' as const,
-          coordinates: [rOrigen.gps, rDestino.gps],
-        },
-      };
-    }).filter((item): item is NonNullable<typeof item> => item !== null);
-  }, []);
-
   const probarLatencia = medirPing;
 
   const nodeOpacity = (gps: [number, number]): number => {
@@ -451,24 +398,24 @@ export default function Infrastructure() {
     <div className="space-y-8 animate-fade-in">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
-          titulo="Red Troncal Global (Backbone)"
-          valor="400 Gbps"
-          detalle="Fibra oscura submarina redundante"
+          titulo="Región seleccionada"
+          valor={regionSeleccionada.id}
+          detalle={detail.loading ? 'Consultando AWS…' : detail.error ? 'Consulta no disponible' : regionSeleccionada.nombre}
           icono={Activity}
           tono="brand"
-          tendencia="Red Privada AWS"
+          tendencia="Inventario AWS"
           info={{
-            titulo: "Red Troncal de Fibra 400GbE",
-            descripcion: "Infraestructura privada global de fibra óptica terrestre y submarina propiedad de AWS con encriptación a nivel de enlace de datos físico."
+            titulo: "Región seleccionada",
+            descripcion: "Los detalles de esta región se consultan en AWS al seleccionarla."
           }}
         />
         <StatCard
-          titulo="Regiones Cloud Desplegadas"
+          titulo="Regiones disponibles en AWS"
           valor={`${activas} de ${regiones.length}`}
-          detalle="Presencia Multi-Continente activa"
+          detalle="Según DescribeRegions para esta cuenta"
           icono={Globe2}
           tono="safe"
-          tendencia="Tolerancia geográfica"
+          tendencia="Estado de acceso regional"
           info={{
             titulo: "Regiones Geográficas AWS",
             descripcion: "Ubicaciones físicas separadas en el mundo compuestas por zonas de disponibilidad aisladas para aislamiento de fallos y soberanía de datos."
@@ -476,25 +423,25 @@ export default function Infrastructure() {
         />
         <StatCard
           titulo="Zonas de Disponibilidad (AZs)"
-          valor={`${totalZonas} Data Centers`}
-          detalle="Centros de datos aislados por inundaciones"
+          valor={`${totalZonas} AZs`}
+          detalle={`Región ${regionSeleccionada.id}`}
           icono={Layers}
           tono="purple"
-          tendencia="Multi-AZ síncrono"
+          tendencia="DescribeAvailabilityZones"
           info={{
             titulo: "Zonas de Disponibilidad (AZ)",
-            descripcion: "Centros de datos discretos e independientes con alimentación y red redundantes, separados físicamente por kilómetros pero con latencia de un solo dígito de milisegundo."
+            descripcion: "AWS devuelve las zonas de disponibilidad de la región seleccionada. Una AZ puede contener más de un centro de datos físico."
           }}
         />
         <StatCard
-          titulo="Compromiso Huella de Carbono"
-          valor="Net-Zero 2040"
-          detalle="100% fuentes renovables eólicas/solares"
+          titulo="VPC en la región"
+          valor={String(detail.data?.network?.vpcs.length ?? '—')}
+          detalle={`${detail.data?.network?.subnets.length ?? '—'} subredes detectadas`}
           icono={Leaf}
           tono="safe"
           info={{
-            titulo: "Compromiso Climático Net-Zero",
-            descripcion: "Objetivo de AWS de suministrar energía 100% renovable a todas sus operaciones e infraestructura para reducir la huella de carbono de las cargas de trabajo."
+            titulo: "Red regional",
+            descripcion: "Conteo de VPC y subredes existentes en la región seleccionada."
           }}
         />
       </div>
@@ -508,15 +455,15 @@ export default function Infrastructure() {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600 shadow-[0_0_6px_rgba(37,99,235,0.4)]" />
               </span>
               <h2 className="text-lg font-bold text-ink">
-                Consola Cartográfica Global & Cableado Submarino 400GbE
+                Consola Cartográfica Global AWS
               </h2>
               <InfoTooltip
                 titulo="Consola Cartográfica Global"
-                descripcion="Visualización geodésica en tiempo real de nodos regionales de AWS, anillos de fibra óptica submarinos intercontinentales y puntos de presencia Edge."
+                descripcion="Las regiones proceden de DescribeRegions; el mapa usa coordenadas geográficas para ubicarlas."
               />
             </div>
             <p className="text-xs text-muted mt-0.5">
-              Topología geodésica real en tiempo real: nodos regionales AWS, anillos de fibra óptica transoceánicos y puntos PoP Edge.
+              Selecciona una región para consultar sus zonas y recursos AWS.
             </p>
           </div>
 
@@ -563,41 +510,17 @@ export default function Infrastructure() {
 
             <div className="flex items-center gap-1.5">
               <div className="flex rounded-xl bg-canvas p-1 border border-line text-xs font-semibold">
+                <button disabled title="No hay trazas de cables físicos en la API consultada" className="px-3 py-1 rounded-lg text-muted opacity-50">Troncal Fibra</button>
                 <button
-                  onClick={() => setCapaMapa('backbone')}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    capaMapa === 'backbone'
-                      ? 'bg-card text-blue-600 shadow-xs border border-line'
-                      : 'text-muted hover:text-ink'
-                  }`}
-                >
-                  Troncal Fibra
-                </button>
-                <button
-                  onClick={() => setCapaMapa('regiones')}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    capaMapa === 'regiones'
-                      ? 'bg-card text-blue-600 shadow-xs border border-line'
-                      : 'text-muted hover:text-ink'
-                  }`}
+                  className="px-3 py-1 rounded-lg bg-card text-blue-600 shadow-xs border border-line"
                 >
                   Regiones AWS
                 </button>
-                <button
-                  onClick={() => setCapaMapa('edge')}
-                  className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 ${
-                    capaMapa === 'edge'
-                      ? 'bg-card text-blue-600 shadow-xs border border-line'
-                      : 'text-muted hover:text-ink'
-                  }`}
-                >
-                  <Radio size={13} />
-                  CloudFront PoPs
-                </button>
+                <button disabled title="No hay inventario de ubicaciones Edge individuales en la API consultada" className="px-3 py-1 rounded-lg text-muted opacity-50 flex items-center gap-1.5"><Radio size={13} /> CloudFront PoPs</button>
               </div>
               <InfoTooltip
                 titulo="Capas de Red"
-                descripcion="Filtra la visualización entre los cables submarinos de fibra oscura 400GbE, las regiones cloud o los más de 450 puntos de presencia (PoPs) perimetrales."
+                descripcion="Muestra las regiones devueltas por AWS DescribeRegions."
               />
             </div>
 
@@ -609,6 +532,8 @@ export default function Infrastructure() {
                   { id: 'América', label: 'América', Icon: MapPin, color: 'emerald', count: regiones.filter(r => r.continente === 'América').length },
                   { id: 'Europa', label: 'Europa', Icon: Building2, color: 'violet', count: regiones.filter(r => r.continente === 'Europa').length },
                   { id: 'Asia-Pacífico', label: 'Asia-Pacífico', Icon: Waves, color: 'amber', count: regiones.filter(r => r.continente === 'Asia-Pacífico').length },
+                  { id: 'África', label: 'África', Icon: MapPin, color: 'emerald', count: regiones.filter(r => r.continente === 'África').length },
+                  { id: 'Oriente Medio', label: 'Oriente Medio', Icon: MapPin, color: 'amber', count: regiones.filter(r => r.continente === 'Oriente Medio').length },
                 ] as const).map((cont) => {
                   const isActive = continenteFiltro === cont.id;
                   const colorMap: Record<string, string> = {
@@ -995,154 +920,6 @@ export default function Infrastructure() {
               </>
             )}
 
-            {capaMapa !== 'edge' && (
-              <g clipPath="url(#sphereClip)">
-                {enlacesFeatures.map((item) => {
-                  const dLine = geoPathGenerator(item.geoJson) || '';
-                  const p1 = proyeccion(item.rOrigen.gps);
-                  const p2 = proyeccion(item.rDestino.gps);
-
-                  const focusId = hoveredNode;
-                  const isConnectedToFocus = Boolean(focusId && (item.cable.de === focusId || item.cable.a === focusId));
-                  const isHoveredCable = hoveredCable === item.cable.nombre;
-                  const isHighlighted = isConnectedToFocus || isHoveredCable;
-                  const hasAnyFocus = Boolean(focusId || hoveredCable);
-
-                  const gradId = `cable-grad-${item.idx}`;
-                  const isVisible = Boolean(dLine && dLine.length > 0);
-
-                  return (
-                    <g
-                      key={item.cable.nombre}
-                      className="cursor-pointer"
-                      opacity={isVisible ? 1 : 0}
-                      style={{ pointerEvents: isVisible ? 'auto' : 'none' }}
-                      onMouseEnter={() => setHoveredCable(item.cable.nombre)}
-                      onMouseLeave={() => setHoveredCable(null)}
-                      onClick={() => {
-                        const targetRegion =
-                          regiones.find((r) => r.id === item.cable.de) ||
-                          regiones.find((r) => r.id === item.cable.a);
-                        if (targetRegion) centrarEnRegion(targetRegion);
-                      }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id={gradId}
-                          gradientUnits="userSpaceOnUse"
-                          x1={p1 ? p1[0] : 0}
-                          y1={p1 ? p1[1] : 0}
-                          x2={p2 ? p2[0] : 0}
-                          y2={p2 ? p2[1] : 0}
-                        >
-                          <stop
-                            offset="0%"
-                            stopColor={isHighlighted ? '#38BDF8' : item.idx % 2 === 0 ? '#06B6D4' : '#10B981'}
-                            stopOpacity="0.95"
-                          />
-                          <stop
-                            offset="50%"
-                            stopColor={isHighlighted ? '#818CF8' : item.idx % 2 === 0 ? '#3B82F6' : '#06B6D4'}
-                            stopOpacity="0.9"
-                          />
-                          <stop
-                            offset="100%"
-                            stopColor={isHighlighted ? '#C084FC' : item.idx % 2 === 0 ? '#8B5CF6' : '#38BDF8'}
-                            stopOpacity="0.95"
-                          />
-                        </linearGradient>
-                      </defs>
-
-                      <path
-                        d={dLine}
-                        fill="none"
-                        stroke={`url(#${gradId})`}
-                        strokeWidth={isHighlighted ? '3.5' : (hasAnyFocus ? '1.5' : '2.2')}
-                        strokeLinecap="round"
-                        opacity={isHighlighted ? 1 : (hasAnyFocus ? 0.2 : 0.75)}
-                      />
-
-                      {[0, 1, 2].map((pulso) => {
-                        const avance = (tiempoRed / (4.2 + item.idx * 0.23) + pulso / 3 + item.idx * 0.137) % 1;
-                        const gps = item.interpolar(avance);
-                        const cabeza = proyeccion(gps);
-                        const visibilidad = nodeOpacity(gps);
-                        const intensidad = isHighlighted ? 1 : (hasAnyFocus ? 0.45 : 0.8);
-                        const color = isHighlighted ? '#67E8F9' : '#6EE7B7';
-                        return (
-                          <g key={pulso} opacity={intensidad} pointerEvents="none">
-                            {[0, 1, 2, 3, 4].map((segmento) => {
-                              const inicio = Math.max(0, avance - (5 - segmento) * 0.012);
-                              const fin = Math.max(0, avance - (4 - segmento) * 0.012);
-                              const estela = geoPathGenerator({
-                                type: 'LineString',
-                                coordinates: [item.interpolar(inicio), item.interpolar(fin)],
-                              }) || '';
-                              return (
-                                <path
-                                  key={segmento}
-                                  d={estela}
-                                  fill="none"
-                                  stroke={color}
-                                  strokeWidth={0.7 + segmento * 0.4}
-                                  strokeLinecap="round"
-                                  opacity={(segmento + 1) / 6}
-                                />
-                              );
-                            })}
-                            {cabeza && visibilidad > 0 && (
-                              <g transform={`translate(${cabeza[0]}, ${cabeza[1]})`} opacity={visibilidad}>
-                                <circle r={isHighlighted ? 5 : 3.5} fill={color} opacity="0.16" />
-                                <circle r={isHighlighted ? 2.8 : 2} fill={color} opacity="0.5" />
-                                <circle r={isHighlighted ? 1.5 : 1.1} fill="#FFFFFF" />
-                              </g>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
-                })}
-              </g>
-            )}
-
-            {capaMapa === 'edge' &&
-              edgeLocations.map((pop) => {
-                const op = nodeOpacity(pop.gps);
-                const coords = proyeccion(pop.gps);
-                const cx = coords ? coords[0] : 0;
-                const cy = coords ? coords[1] : 0;
-                const isVisible = Boolean(coords && op > 0);
-
-                return (
-                  <g
-                    key={pop.id}
-                    opacity={isVisible ? op : 0}
-                    transform={`translate(${cx}, ${cy})`}
-                    style={{ pointerEvents: isVisible ? 'auto' : 'none' }}
-                    className="cursor-pointer group"
-                    onMouseEnter={() => setPopHover({ ciudad: pop.ciudad, pais: pop.pais })}
-                    onMouseLeave={() => setPopHover(null)}
-                  >
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r="4.5"
-                      fill="#F59E0B"
-                      opacity="0.25"
-                    />
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r="2.5"
-                      fill="#F59E0B"
-                      stroke="#FFF"
-                      strokeWidth="0.5"
-                    />
-                  </g>
-                );
-              })}
-
             {regiones.map((r) => {
               const esFiltrada = continenteFiltro === 'Todos' || r.continente === continenteFiltro;
               const op = nodeOpacity(r.gps);
@@ -1228,63 +1005,28 @@ export default function Infrastructure() {
             })}
           </svg>
 
-          {hoveredCable && (() => {
-            const cable = enlacesBackbone.find((c) => c.nombre === hoveredCable);
-            if (!cable) return null;
-            const rDe = regiones.find((r) => r.id === cable.de);
-            const rA = regiones.find((r) => r.id === cable.a);
-            return (
-              <div className="absolute top-3 left-3 sm:top-16 sm:left-4 max-w-[calc(100%-24px)] rounded-xl bg-slate-950/90 backdrop-blur-md px-3.5 py-2.5 border border-cyan-500/50 text-xs text-slate-200 z-20 shadow-2xl animate-fade-in flex items-center gap-3 pointer-events-none">
-                <div className="h-2.5 w-2.5 rounded-full bg-cyan-400 animate-ping" />
-                <div>
-                  <p className="font-bold text-white leading-tight flex items-center gap-2">
-                    <span className="text-cyan-300">{cable.nombre}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-mono text-[10px] border border-cyan-500/30">
-                      ⚡ {cable.latencia} ms
-                    </span>
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {rDe?.nombre} ({cable.de}) ↔ {rA?.nombre} ({cable.a})
-                  </p>
-                </div>
-              </div>
-            );
-          })()}
-
-          {popHover && (
-            <div className="absolute top-3 right-3 sm:top-16 sm:right-4 max-w-[calc(100%-24px)] rounded-xl bg-slate-900/90 backdrop-blur-md px-3.5 py-2 border border-amber-500/40 text-xs text-slate-200 z-20 shadow-xl animate-fade-in flex items-center gap-2">
-              <Radio size={14} className="text-amber-400 animate-pulse" />
-              <div>
-                <p className="font-bold text-white leading-tight">PoP CloudFront Edge</p>
-                <p className="text-[11px] text-amber-300">
-                  {popHover.ciudad}, {popHover.pais} · 450+ Ubicaciones Edge
-                </p>
-              </div>
-            </div>
-          )}
-
           <div className="hidden sm:block absolute top-3 left-3 sm:top-4 sm:left-4 rounded-2xl bg-slate-950/85 backdrop-blur-md px-4 py-3 border border-slate-800 text-xs text-slate-300 space-y-1 z-10 shadow-lg pointer-events-none">
             <div className="flex items-center gap-2 text-white font-bold">
               <Compass size={16} className="text-blue-400" />
               <span>Red Cartográfica AWS Global Infrastructure</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              34 Regiones Geográficas · 108 Zonas de Disponibilidad · Red Óptica 400GbE Transoceánica
+              {regiones.length} regiones consultadas · {detail.data?.inventory?.zones.length ?? '—'} AZ en {regionSeleccionada.id}
             </p>
           </div>
 
           <div className="hidden sm:flex absolute bottom-3 right-3 sm:bottom-4 sm:right-4 flex-wrap items-center gap-3 rounded-2xl bg-slate-950/85 backdrop-blur-md px-4 py-2.5 border border-slate-800 text-xs text-slate-300 z-10 shadow-lg pointer-events-none">
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" style={{ animationDuration: '3.5s' }} />
-              <span className="font-semibold text-white">Backbone Activo</span>
+              <span className="font-semibold text-white">Regiones AWS</span>
             </div>
             <span className="text-slate-600">|</span>
-            <span>Rutas Geodésicas de Círculo Máximo</span>
+            <span>Estado consultado en DescribeRegions</span>
           </div>
 
           <div className="sm:hidden absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-slate-950/85 backdrop-blur-md px-2.5 py-1 border border-slate-800 text-[10px] text-slate-300 z-10 pointer-events-none">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold text-white">Backbone Activo</span>
+            <span className="font-semibold text-white">Regiones AWS</span>
           </div>
         </div>
 
@@ -1332,12 +1074,12 @@ export default function Infrastructure() {
                         </span>
                       ) : (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-500/10 text-muted border border-line">
-                          referencial
+                          sin medir
                         </span>
                       )}
                     </div>
                     <p className={`text-lg font-black font-mono transition-colors ${pingEsReal ? 'text-emerald-600' : 'text-ink'}`}>
-                      {pingVivo} ms
+                      {pingVivo ?? '—'} ms
                     </p>
                   </div>
                   <button
@@ -1352,13 +1094,13 @@ export default function Infrastructure() {
 
                 <div className="px-4 py-2.5 rounded-2xl bg-card border border-line shadow-xs">
                   <p className="text-[10px] text-muted font-bold uppercase">Zonas Disponibles</p>
-                  <p className="text-lg font-black text-ink">{regionSeleccionada.zonasDisponibilidad} AZs</p>
+                  <p className="text-lg font-black text-ink">{detail.data?.inventory?.zones.length ?? '—'} AZs</p>
                 </div>
 
                 <div className="px-4 py-2.5 rounded-2xl bg-card border border-line shadow-xs">
                   <p className="text-[10px] text-muted font-bold uppercase">Servicios Activos</p>
                   <p className="text-lg font-black text-emerald-600">
-                    {regionSeleccionada.serviciosDesplegados.length} desplegados
+                    {detail.data?.services ? Object.values(detail.data.services.resources).filter((r) => r.items.length > 0).length : '—'} desplegados
                   </p>
                 </div>
               </div>
@@ -1366,143 +1108,37 @@ export default function Infrastructure() {
 
             <div>
               <p className="text-xs font-bold text-ink mb-2 uppercase tracking-wider">
-                Matriz de Latencias desde {regionSeleccionada.id} hacia otras Regiones Cloud
+                Zonas de disponibilidad de {regionSeleccionada.id}
               </p>
+              {detail.loading && <p className="text-xs text-muted">Consultando AWS…</p>}
+              {detail.error && <p className="text-xs text-rose-600">{detail.error}</p>}
+              {detail.data && Object.entries(detail.data.errors).map(([key, value]) => <p key={key} className="text-xs text-amber-600">{key}: {value}</p>)}
+              <p className="mb-2 text-xs text-muted">EC2: {detail.data?.inventory?.instances.length ?? '—'} · RDS: {detail.data?.inventory?.databases.length ?? '—'} · VPC: {detail.data?.network?.vpcs.length ?? '—'} · subredes: {detail.data?.network?.subnets.length ?? '—'}</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
-                {regiones
-                  .filter((r) => r.id !== regionSeleccionada.id)
-                  .map((dest) => {
-                    const latencia = matrizLatencia[regionSeleccionada.id]?.[dest.id] ?? 120;
-                    return (
-                      <div
-                        key={dest.id}
-                        className="p-3 rounded-2xl bg-card border border-line hover:border-blue-500/40 transition-all text-xs"
-                      >
-                        <p className="font-bold text-ink truncate">{dest.nombre}</p>
-                        <p className="text-[10px] font-mono text-muted">{dest.id}</p>
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-[10px] text-muted">RTT Fibra:</span>
-                          <span className="font-mono font-bold text-blue-600">{latencia} ms</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                {(detail.data?.inventory?.zones ?? []).map((zone) => <button type="button" key={zone.id} onClick={() => setZoneId(zone.id)} className={`p-3 rounded-2xl bg-card border text-left text-xs hover:border-blue-500/40 ${zoneId === zone.id ? 'border-blue-500' : 'border-line'}`}>
+                  <p className="font-bold text-ink">{zone.name}</p><p className="font-mono text-muted">{zone.id}</p><p className="mt-2 text-muted">{zone.state}</p>
+                </button>)}
               </div>
+              {zoneId && <div className="mt-4 rounded-2xl border border-line bg-card p-4 text-xs text-ink">
+                {zoneDetail.loading ? 'Consultando zona…' : zoneDetail.error ? zoneDetail.error : zoneDetail.data ? <>
+                  <strong>{zoneDetail.data.zone.name} · {zoneDetail.data.zone.id}</strong>
+                  <p className="mt-1">Estado: {zoneDetail.data.zone.state} · EC2: {zoneDetail.data.instances.length} · RDS: {zoneDetail.data.databases.length} · subredes: {zoneDetail.data.subnets.length}</p>
+                  {zoneDetail.data.instances.map((item) => <p key={item.id}>EC2 {item.id}</p>)}
+                  {zoneDetail.data.databases.map((item) => <p key={item.id}>RDS {item.id}</p>)}
+                  {zoneDetail.data.subnets.map((item) => <p key={item.id}>Subred {item.id} · {item.cidr}</p>)}
+                </> : null}
+              </div>}
             </div>
           </div>
         )}
       </Card>
 
       <Card className="p-6 border-blue-500/20 bg-gradient-to-br from-card to-blue-500/5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line pb-4 mb-5">
-          <div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={22} className="text-blue-600" />
-              <h3 className="text-base font-bold text-ink">
-                Simulador de Alta Disponibilidad & Conmutación por Error Multi-AZ
-              </h3>
-              <InfoTooltip
-                titulo="Tolerancia a Desastres Multi-AZ"
-                descripcion="Simulación de una caída imprevista en un centro de datos. Demuestra cómo Route 53, ALB y RDS conmutan el tráfico a zonas de disponibilidad sanas sin interrupción del servicio ni pérdida de transacciones."
-              />
-            </div>
-            <p className="text-xs text-muted mt-0.5">
-              Demuestra cómo el diseño Multi-AZ absorbe cortes de energía o desastres físicos redirigiendo tráfico de manera transparente.
-            </p>
-          </div>
-
-          <button
-            onClick={() => setSimulandoFallo(!simulandoFallo)}
-            className={`rounded-xl px-5 py-2.5 text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-2 ${
-              simulandoFallo
-                ? 'bg-rose-600 text-white hover:bg-rose-500'
-                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500'
-            }`}
-          >
-            {simulandoFallo ? (
-              <>
-                <RefreshCw size={14} /> Restaurar Centro de Datos
-              </>
-            ) : (
-              <>
-                <Flame size={14} /> Simular Caída Eléctrica en AZ-1a
-              </>
-            )}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          <div
-            className={`p-4 rounded-2xl border transition-all ${
-              simulandoFallo
-                ? 'border-rose-500 bg-rose-500/10 shadow-md ring-1 ring-rose-500'
-                : 'border-emerald-500/30 bg-emerald-500/5'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Server size={14} className={simulandoFallo ? 'text-rose-500' : 'text-emerald-500'} />
-                <span className="font-bold text-ink">Zona AZ us-east-1a</span>
-              </div>
-              {simulandoFallo ? (
-                <span className="text-[10px] font-bold text-rose-600 bg-rose-500/20 px-2 py-0.5 rounded-full animate-pulse">
-                  Desconectada
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/20 px-2 py-0.5 rounded-full">
-                  Saludable (33% Carga)
-                </span>
-              )}
-            </div>
-            <p className="text-muted leading-relaxed">
-              {simulandoFallo
-                ? 'Route 53 y los Health Checks del ALB detectaron falta de respuesta en 6s. El tráfico entrante ha sido desviado totalmente.'
-                : 'Instancias EC2 y storage EBS funcionando a plena capacidad con refrigeración activa.'}
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Server size={14} className="text-emerald-500" />
-                <span className="font-bold text-ink">Zona AZ us-east-1b</span>
-              </div>
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/20 px-2 py-0.5 rounded-full">
-                {simulandoFallo ? 'Absorbiendo Carga (50%)' : 'Saludable (33% Carga)'}
-              </span>
-            </div>
-            <p className="text-muted leading-relaxed">
-              Instancias EC2 en Auto Scaling reciben tráfico redistribuido. Latencia interna se mantiene en &lt;1.2 ms.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Server size={14} className="text-emerald-500" />
-                <span className="font-bold text-ink">Zona AZ us-east-1c</span>
-              </div>
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/20 px-2 py-0.5 rounded-full">
-                {simulandoFallo ? 'RDS Primaria Promovida' : 'RDS Standby Réplica'}
-              </span>
-            </div>
-            <p className="text-muted leading-relaxed">
-              La base de datos PostgreSQL Standby asumió como Primaria mediante replicación síncrona sin pérdida de datos (RPO = 0s).
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-line/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted">
-          <span className="flex items-center gap-1.5 font-medium text-ink">
-            <CheckCircle2 size={16} className="text-emerald-500" />
-            Conmutación por error validada: Cero pérdida de transacciones · RTO: 14 segundos
-          </span>
-          <span className="font-mono text-emerald-600 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
-            SLA Cumplido: 99.99%
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div><h3 className="text-base font-bold text-ink">Conmutación por error Multi-AZ</h3><p className="mt-1 text-xs text-muted">No hay una prueba de fallo ejecutada en esta cuenta.</p></div>
+          <button type="button" disabled className="rounded-xl bg-canvas px-5 py-2.5 text-xs font-bold text-muted opacity-60">Prueba no disponible</button>
         </div>
       </Card>
-
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -1513,7 +1149,7 @@ export default function Infrastructure() {
                 descripcion="Listado completo de todas las regiones geográficas de AWS con detalles sobre zonas de disponibilidad, servicios desplegados y coordenadas de telemetría."
               />
             </div>
-            <p className="text-xs text-muted">Cobertura global, infraestructura física y latencias calculadas</p>
+            <p className="text-xs text-muted">Regiones AWS; las AZ y los recursos se consultan al seleccionar una región</p>
           </div>
         </div>
 

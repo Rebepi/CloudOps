@@ -9,24 +9,31 @@ import {
   Lock,
   Play,
   CheckCircle2,
-  Copy,
-  Check,
-  Eye,
   Server,
   Cloud,
   Terminal,
   ShieldAlert,
   ArrowRight,
 } from 'lucide-react';
-import { controlesSeguridad, usuariosIAM } from '../data/securityChecks';
 import { SecurityCard } from '../components/SecurityCard';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Card } from '../components/ui/Card';
-import { Modal } from '../components/ui/Modal';
 import { InfoTooltip } from '../components/ui/InfoTooltip';
 import { Select } from '../components/ui/Select';
 import type { ControlSeguridad, UsuarioIAM } from '../types/cloud';
 import { useCloud } from '../context/CloudContext';
+import { useAws } from '../hooks/useAws';
+import { api, type AwsResponse } from '../lib/api';
+
+type SecurityData = {
+  accountSummary: Record<string, number>;
+  identities: { name: string; arn: string; mfa: boolean; createdAt?: string; policies: string[] }[];
+  roles: { name: string; arn: string; createdAt?: string; policies: string[] }[];
+  trails: { name?: string; multiRegion?: boolean; logFileValidation?: boolean; isLogging?: boolean | null }[];
+  findings: { id?: string; title?: string; severity?: string; status?: string }[];
+  findingsError: string | null;
+  truncated: boolean;
+};
 
 const dominios: ControlSeguridad['dominio'][] = [
   'Responsabilidad compartida',
@@ -38,84 +45,55 @@ const dominios: ControlSeguridad['dominio'][] = [
 
 const iconoTipo = { Usuario: User, Grupo: Users, Rol: Key } as const;
 
-const accionesPrueba = [
-  { id: 's3:GetObject', label: 's3:GetObject (Leer objetos)', permitidos: ['usr-1', 'usr-2', 'rol-1'] },
-  { id: 's3:DeleteBucket', label: 's3:DeleteBucket (Eliminar bucket)', permitidos: ['usr-1'] },
-  { id: 'ec2:RunInstances', label: 'ec2:RunInstances (Lanzar instancias)', permitidos: ['usr-1', 'grp-1'] },
-  { id: 'ec2:TerminateInstances', label: 'ec2:TerminateInstances (Apagar flota)', permitidos: ['usr-1'] },
-  { id: 'rds:CreateDBSnapshot', label: 'rds:CreateDBSnapshot (Backup BD)', permitidos: ['usr-1', 'usr-2'] },
-  { id: 'iam:CreateUser', label: 'iam:CreateUser (Crear credenciales)', permitidos: ['usr-1'] },
-];
+const accionesPrueba = ['s3:GetObject', 's3:DeleteBucket', 'ec2:RunInstances', 'ec2:TerminateInstances', 'rds:CreateDBSnapshot', 'iam:CreateUser'];
 
 export default function Security() {
   const { ambiente, regionPrincipal } = useCloud();
+  const security = useAws<SecurityData>(`/aws/security?region=${regionPrincipal}`);
   const [dominioActivo, setDominioActivo] = useState<string>('Todos');
   const [filtroNivel, setFiltroNivel] = useState<string>('Todos');
   const [auditando, setAuditando] = useState(false);
-  const [progresoAuditoria, setProgresoAuditoria] = useState(0);
   const [auditoriaCompletada, setAuditoriaCompletada] = useState(false);
-  const [politicaSeleccionada, setPoliticaSeleccionada] = useState<UsuarioIAM | null>(null);
-  const [copiado, setCopiado] = useState(false);
-
-  const [simUsuarioId, setSimUsuarioId] = useState<string>('usr-2');
+  const [simUsuarioId, setSimUsuarioId] = useState<string>('');
   const [simAccionId, setSimAccionId] = useState<string>('ec2:TerminateInstances');
+  const [recursoArn, setRecursoArn] = useState('*');
   const [resultadoSimulacion, setResultadoSimulacion] = useState<{ permitido: boolean; motivo: string } | null>(null);
+  const [errorSimulacion, setErrorSimulacion] = useState<string | null>(null);
 
-  const controlesAmbiente = controlesSeguridad.map((c) => {
-    if (ambiente === 'Sandbox') {
-      if (c.nivel === 'correcto' && (
-        c.dominio === 'Protección de la cuenta' || c.dominio === 'Cumplimiento'
-      )) return { ...c, nivel: 'revision' as const };
-    } else if (ambiente === 'Staging') {
-      if (c.nivel === 'correcto' && c.dominio === 'Cumplimiento') {
-        return { ...c, nivel: 'revision' as const };
-      }
-    }
-    return c;
-  });
+  const usuariosIAM: UsuarioIAM[] = security.data ? [
+    ...security.data.identities.map((u) => ({ id: u.arn, nombre: u.name, tipo: 'Usuario' as const, politicas: u.policies, mfa: u.mfa, ultimoAcceso: u.createdAt ? `Creado: ${new Date(u.createdAt).toLocaleDateString('es-PE')}` : 'Sin fecha', arn: u.arn })),
+    ...security.data.roles.map((r) => ({ id: r.arn, nombre: r.name, tipo: 'Rol' as const, politicas: r.policies, mfa: false, ultimoAcceso: r.createdAt ? `Creado: ${new Date(r.createdAt).toLocaleDateString('es-PE')}` : 'Sin fecha', arn: r.arn })),
+  ] : [];
+  const controlesAmbiente: ControlSeguridad[] = security.data ? [
+    { id: 'root-mfa', dominio: 'Protección de la cuenta', titulo: 'MFA de la cuenta root', descripcion: `IAM AccountMFAEnabled: ${security.data.accountSummary.AccountMFAEnabled ?? 'sin dato'}`, nivel: security.data.accountSummary.AccountMFAEnabled === 1 ? 'correcto' : 'problema', recomendacion: 'Habilitar MFA si el indicador es 0.' },
+    { id: 'iam-mfa', dominio: 'Gestión de identidades (IAM)', titulo: 'MFA de usuarios IAM', descripcion: `${security.data.identities.filter((u) => u.mfa).length} de ${security.data.identities.length} usuarios con MFA`, nivel: security.data.identities.every((u) => u.mfa) ? 'correcto' : 'revision', recomendacion: security.data.identities.length ? 'Revisar los usuarios sin MFA.' : 'No hay usuarios IAM en esta cuenta.' },
+    { id: 'cloudtrail', dominio: 'Cumplimiento', titulo: 'Registro de CloudTrail', descripcion: `${security.data.trails.filter((t) => t.isLogging).length} de ${security.data.trails.length} trails registrando en ${regionPrincipal}`, nivel: security.data.trails.some((t) => t.isLogging) ? 'correcto' : 'problema', recomendacion: 'Verificar el registro de eventos de CloudTrail en la cuenta.' },
+    ...(security.data.findingsError ? [] : security.data.findings.map((f) => ({ id: f.id ?? f.title ?? 'finding', dominio: 'Cumplimiento' as const, titulo: f.title ?? 'Hallazgo Security Hub', descripcion: `${f.severity ?? 'Sin severidad'} · ${f.status ?? 'Sin estado'}`, nivel: (f.severity === 'CRITICAL' || f.severity === 'HIGH' ? 'problema' : 'revision') as ControlSeguridad['nivel'], recomendacion: 'Revisar el hallazgo en Security Hub.' }))),
+  ] : [];
 
   const correctos = controlesAmbiente.filter((c) => c.nivel === 'correcto').length;
   const revisiones = controlesAmbiente.filter((c) => c.nivel === 'revision').length;
   const problemas = controlesAmbiente.filter((c) => c.nivel === 'problema').length;
   const total = controlesAmbiente.length;
-  const pct = Math.round((correctos / total) * 100);
+  const pct = total ? Math.round((correctos / total) * 100) : 0;
 
-  const ejecutarAuditoria = () => {
+  const ejecutarAuditoria = async () => {
     setAuditando(true);
-    setProgresoAuditoria(0);
     setAuditoriaCompletada(false);
-
-    const intervalo = setInterval(() => {
-      setProgresoAuditoria((prev) => {
-        if (prev >= 100) {
-          clearInterval(intervalo);
-          setAuditando(false);
-          setAuditoriaCompletada(true);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 300);
+    const ok = await security.refresh();
+    setAuditando(false);
+    setAuditoriaCompletada(ok);
   };
 
-  const copiarAlPortapapeles = (texto: string) => {
-    navigator.clipboard.writeText(texto);
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
-  };
-
-  const evaluarPolitica = () => {
-    const accion = accionesPrueba.find((a) => a.id === simAccionId);
-    const usuario = usuariosIAM.find((u) => u.id === simUsuarioId);
-    if (!accion || !usuario) return;
-
-    const permitido = accion.permitidos.includes(usuario.id);
-    setResultadoSimulacion({
-      permitido,
-      motivo: permitido
-        ? `Permitido por directiva explícita en las políticas asignadas a ${usuario.nombre}.`
-        : `DENEGADO (Implicit Deny): ${usuario.nombre} no cuenta con permisos para ejecutar ${simAccionId}. Principio de Privilegio Mínimo aplicado.`,
-    });
+  const evaluarPolitica = async () => {
+    if (!simUsuarioId || !simAccionId || !recursoArn) return;
+    setResultadoSimulacion(null);
+    try {
+      const result = await api<AwsResponse<{ decision: string; missingContext: string[] }[]>>('/aws/iam/simulate', { method: 'POST', body: JSON.stringify({ principalArn: simUsuarioId, action: simAccionId, resourceArn: recursoArn }) });
+      const item = result.data[0];
+      setResultadoSimulacion({ permitido: item?.decision === 'allowed', motivo: `${item?.decision ?? 'Sin resultado'}${item?.missingContext?.length ? ` · Contexto faltante: ${item.missingContext.join(', ')}` : ''}` });
+      setErrorSimulacion(null);
+    } catch (error) { setErrorSimulacion(error instanceof Error ? error.message : String(error)); }
   };
 
   const controlesFiltrados = controlesAmbiente.filter((c) => {
@@ -145,7 +123,7 @@ export default function Security() {
             </h2>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <p className="text-xs text-muted">
-                Evaluación automatizada alineada a CIS AWS Foundations Benchmark y AWS Well-Architected Pillar
+                Controles puntuales consultados en IAM, CloudTrail y Security Hub
               </p>
               <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badgeAmbiente}`}>
                 {ambiente}
@@ -161,28 +139,17 @@ export default function Security() {
             disabled={auditando}
             className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:from-blue-500 hover:to-indigo-500 transition-all disabled:opacity-50 cursor-pointer"
           >
-            <Play size={14} /> {auditando ? `Escaneando (${progresoAuditoria}%)...` : 'Ejecutar Auditoría en Vivo'}
+            <Play size={14} /> {auditando ? 'Consultando AWS...' : 'Ejecutar Auditoría en Vivo'}
           </button>
         </div>
 
-        {auditando && (
-          <div className="mb-6 space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>Inspeccionando políticas IAM, cifrado KMS y Security Groups...</span>
-              <span className="font-mono font-bold text-blue-600">{progresoAuditoria}%</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-canvas overflow-hidden border border-line">
-              <div
-                className="h-full bg-blue-600 transition-all duration-300 rounded-full"
-                style={{ width: `${progresoAuditoria}%` }}
-              />
-            </div>
-          </div>
-        )}
+        {(auditando || security.loading) && <p className="mb-6 text-xs text-muted">Consultando IAM, CloudTrail y Security Hub...</p>}
+        {security.error && <p className="mb-6 text-xs text-rose-600">{security.error}</p>}
+        {security.data?.findingsError && <p className="mb-6 text-xs text-amber-600">Security Hub: {security.data.findingsError}</p>}
 
         {auditoriaCompletada && (
           <div className="mb-6 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold text-emerald-600 flex items-center gap-2">
-            <CheckCircle2 size={16} /> ¡Auditoría completada exitosamente! Se verificaron los 12 controles de seguridad en todas las regiones.
+            <CheckCircle2 size={16} /> Consulta completada para {regionPrincipal}. Se evaluaron {total} controles con datos disponibles.
           </div>
         )}
 
@@ -220,14 +187,14 @@ export default function Security() {
         </div>
 
         <div className="w-full h-3 rounded-full bg-canvas overflow-hidden flex border border-line">
-          <div className="bg-emerald-500 transition-all duration-700" style={{ width: `${(correctos / total) * 100}%` }} />
-          <div className="bg-amber-500 transition-all duration-700" style={{ width: `${(revisiones / total) * 100}%` }} />
-          <div className="bg-rose-500 transition-all duration-700" style={{ width: `${(problemas / total) * 100}%` }} />
+          <div className="bg-emerald-500 transition-all duration-700" style={{ width: `${total ? (correctos / total) * 100 : 0}%` }} />
+          <div className="bg-amber-500 transition-all duration-700" style={{ width: `${total ? (revisiones / total) * 100 : 0}%` }} />
+          <div className="bg-rose-500 transition-all duration-700" style={{ width: `${total ? (problemas / total) * 100 : 0}%` }} />
         </div>
 
         <div className="flex items-center justify-between text-xs text-muted mt-2">
-          <span>{pct}% de cumplimiento global</span>
-          <span>Total evaluado: {total} directivas</span>
+          <span>{pct}% de controles observados correctos</span>
+          <span>Total observado: {total} controles</span>
         </div>
       </Card>
 
@@ -257,7 +224,7 @@ export default function Security() {
                 value: u.id,
                 label: u.nombre,
                 sublabel: u.tipo,
-                badge: u.mfa ? 'MFA' : undefined,
+                badge: u.tipo === 'Usuario' && u.mfa ? 'MFA' : undefined,
                 badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
               }))}
               className="w-full"
@@ -271,9 +238,8 @@ export default function Security() {
               value={simAccionId}
               onChange={setSimAccionId}
               opciones={accionesPrueba.map((a) => ({
-                value: a.id,
-                label: a.id,
-                sublabel: a.label.split('(')[1]?.replace(')', '') ?? '',
+                value: a,
+                label: a,
               }))}
               className="w-full"
               buscable={true}
@@ -281,15 +247,21 @@ export default function Security() {
             />
           </div>
 
+          <div>
+            <label className="block font-bold text-ink mb-1.5">ARN del recurso</label>
+            <input value={recursoArn} onChange={(e) => setRecursoArn(e.target.value)} className="w-full rounded-xl border border-line bg-canvas px-3 py-2.5 text-xs text-ink" aria-label="ARN del recurso" />
+          </div>
           <div className="flex items-end">
             <button
               onClick={evaluarPolitica}
+              disabled={!simUsuarioId}
               className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-2.5 text-xs font-bold text-white shadow-md hover:from-blue-500 hover:to-indigo-500 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <ArrowRight size={15} /> Evaluar Autorización
             </button>
           </div>
         </div>
+        {errorSimulacion && <p className="mt-3 text-xs text-rose-600">{errorSimulacion}</p>}
 
         {resultadoSimulacion && (
           <div
@@ -393,7 +365,7 @@ export default function Security() {
             <h3 className="text-base font-bold text-ink">
               Matriz de Controles de Seguridad ({controlesFiltrados.length})
             </h3>
-            <p className="text-xs text-muted">Directivas auditadas en tiempo de ejecución</p>
+            <p className="text-xs text-muted">Indicadores derivados de respuestas AWS disponibles</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -441,7 +413,7 @@ export default function Security() {
             </p>
           </div>
           <span className="text-xs font-mono font-semibold text-emerald-600 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-            MFA Activo en Cuentas Clave
+            {security.data ? `${security.data.identities.length} usuarios · ${security.data.roles.length} roles` : 'Consultando IAM'}
           </span>
         </div>
 
@@ -465,10 +437,7 @@ export default function Security() {
                       </div>
                     </div>
 
-                    <StatusBadge
-                      nivel={u.mfa ? 'correcto' : 'revision'}
-                      texto={u.mfa ? 'MFA Sí' : 'MFA No'}
-                    />
+                    {u.tipo === 'Usuario' && <StatusBadge nivel={u.mfa ? 'correcto' : 'revision'} texto={u.mfa ? 'MFA Sí' : 'MFA No'} />}
                   </div>
 
                   <div className="mt-3 space-y-1">
@@ -490,47 +459,14 @@ export default function Security() {
 
                 <div className="pt-3 border-t border-line/60 flex items-center justify-between text-xs text-muted">
                   <span>{u.ultimoAcceso}</span>
-                  {u.politicaJson && (
-                    <button
-                      onClick={() => setPoliticaSeleccionada(u)}
-                      className="text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <Eye size={13} /> Ver JSON
-                    </button>
-                  )}
+                  <span className="font-mono text-[10px] break-all">{u.arn}</span>
                 </div>
               </div>
             );
           })}
         </div>
+        {!usuariosIAM.length && !security.loading && <p className="text-xs text-muted">No hay identidades IAM en la respuesta.</p>}
       </Card>
-
-      <Modal
-        abierto={!!politicaSeleccionada}
-        onCerrar={() => setPoliticaSeleccionada(null)}
-        titulo={`Política IAM JSON · ${politicaSeleccionada?.nombre}`}
-        subtitulo={politicaSeleccionada?.arn}
-        tamano="lg"
-      >
-        {politicaSeleccionada?.politicaJson && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted font-medium">Documento de Política de Permisos IAM</span>
-              <button
-                onClick={() => copiarAlPortapapeles(politicaSeleccionada.politicaJson!)}
-                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline cursor-pointer"
-              >
-                {copiado ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                {copiado ? '¡Copiado!' : 'Copiar JSON'}
-              </button>
-            </div>
-
-            <pre className="p-4 rounded-xl bg-slate-950 text-emerald-400 font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner">
-              {politicaSeleccionada.politicaJson}
-            </pre>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

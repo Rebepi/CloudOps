@@ -1,0 +1,47 @@
+{
+  "name": "cloudops-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "migrate": "node-pg-migrate up -m migrations",
+    "migrate:down": "node-pg-migrate down -m migrations",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-budgets": "^3.1143.0",
+    "@aws-sdk/client-cloudfront": "^3.1143.0",
+    "@aws-sdk/client-cloudtrail": "^3.0.0",
+    "@aws-sdk/client-cloudwatch": "^3.0.0",
+    "@aws-sdk/client-compute-optimizer": "^3.1143.0",
+    "@aws-sdk/client-cost-explorer": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.1143.0",
+    "@aws-sdk/client-ec2": "^3.0.0",
+    "@aws-sdk/client-elastic-load-balancing-v2": "^3.1143.0",
+    "@aws-sdk/client-iam": "^3.0.0",
+    "@aws-sdk/client-kms": "^3.1143.0",
+    "@aws-sdk/client-lambda": "^3.1143.0",
+    "@aws-sdk/client-pricing": "^3.0.0",
+    "@aws-sdk/client-rds": "^3.0.0",
+    "@aws-sdk/client-route-53": "^3.1143.0",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-securityhub": "^3.0.0",
+    "@aws-sdk/client-sts": "^3.0.0",
+    "@aws-sdk/client-wafv2": "^3.1143.0",
+    "@aws-sdk/credential-providers": "^3.0.0",
+    "@fastify/cors": "^11.0.0",
+    "dotenv": "^16.0.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.0.0",
+    "node-pg-migrate": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "~6.0.2"
+  }
+}

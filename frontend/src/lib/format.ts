@@ -4,7 +4,7 @@ export const usd = (valor: number) =>
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: valor > 0 && valor < 0.01 ? 6 : 2,
-  }).format(valor);
+  }).format(Math.abs(valor) < 0.000001 ? 0 : valor);
 
 export const numero = (valor: number) =>
   new Intl.NumberFormat('es-PE').format(valor);

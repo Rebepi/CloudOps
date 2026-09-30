@@ -25,7 +25,7 @@ export function CostCard({ servicio, item, subtotal, onEliminar }: Props) {
             </span>
           </div>
           <p className="text-xs text-muted mt-0.5">
-            {item.cantidad} × {item.horasMes} h/mes · {usd(servicio.precioUnitario)} por {servicio.unidad}
+            {item.cantidad} × {item.unidadPrecio === 'Hrs' ? `${item.horasMes} h/mes` : '1 periodo'} · {item.precioUnitario == null ? 'Sin cotización' : `${usd(item.precioUnitario)} por ${item.unidadPrecio ?? 'unidad'}`}
             {item.configuracion ? ` · ${item.configuracion}` : ''}
           </p>
         </div>
@@ -33,7 +33,7 @@ export function CostCard({ servicio, item, subtotal, onEliminar }: Props) {
 
       <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
         <div className="text-left sm:text-right">
-          <p className="text-base font-extrabold text-amber-600">{usd(subtotal)}</p>
+          <p className="text-base font-extrabold text-amber-600">{item.precioUnitario == null ? 'Sin cotización' : usd(subtotal)}</p>
           <p className="text-[10px] text-muted">/mes</p>
         </div>
         <button

@@ -9,16 +9,16 @@ interface ReportModalProps {
 
 export function ReportModal({ abierto, onCerrar }: ReportModalProps) {
   const [config, setConfig] = useState<ReportConfig>({
-    empresa: 'Corporación Digital S.A.',
-    autor: 'Renzo DevOps',
-    cargo: 'Senior Cloud Solutions Architect',
+    empresa: '',
+    autor: '',
+    cargo: '',
     incluirResumen: true,
     incluirPropuesta: true,
     incluirFinOps: true,
     incluirSeguridad: true,
     incluirRed: true,
     incluirServicios: true,
-    notasAdicionales: 'La arquitectura cumple con las directivas del pilar de Seguridad y Confiabilidad del AWS Well-Architected Framework.',
+    notasAdicionales: '',
   });
 
   const [pestanaActiva, setPestanaActiva] = useState<'preview' | 'config'>('preview');
@@ -181,13 +181,13 @@ tr {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="text-xs sm:text-base font-bold text-white leading-tight">Generador de Reporte Ejecutivo Cloud</h2>
+                <h2 className="text-xs sm:text-base font-bold text-white leading-tight">Reporte del escenario de arquitectura</h2>
                 <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
                   PDF READY
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
-                Genera un documento profesional imprimible con KPIs, Well-Architected, FinOps, IAM y Redes
+                Documento imprimible con datos consultados de AWS y planes guardados localmente.
               </p>
             </div>
           </div>

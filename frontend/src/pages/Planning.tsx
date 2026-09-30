@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Trash2,
   ClipboardList,
@@ -8,10 +8,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   AlertCircle,
-  AlertTriangle,
-  Layers,
   ShieldCheck,
-  ShieldAlert,
   Clock,
   DollarSign,
   Users,
@@ -19,50 +16,46 @@ import {
   RotateCcw,
   Check,
   Compass,
-  TrendingDown,
-  Award,
-  FileCheck2,
   Zap,
-  RefreshCw,
   Download,
-  CheckCheck,
 } from 'lucide-react';
 import { useCloud } from '../context/CloudContext';
 import { serviciosAWS } from '../data/awsServices';
-import { regiones } from '../data/regions';
-import { simularArquitecturaCloud } from '../lib/cloudSimulator';
+import { regionGeometry } from '../data/regionGeometry';
+import { useAws } from '../hooks/useAws';
 import { Card } from '../components/ui/Card';
 import { ServiceCard } from '../components/ServiceCard';
 import { Modal } from '../components/ui/Modal';
 import { InfoTooltip } from '../components/ui/InfoTooltip';
 import { Select } from '../components/ui/Select';
 import { fecha } from '../lib/format';
+import { api } from '../lib/api';
 import type { PropuestaCloud } from '../types/cloud';
 
 const disponibilidades = [
   {
     value: 'basica',
-    label: 'Básica (99.5% SLA)',
-    sublabel: 'Mono-AZ Estándar',
-    downtime: '~43.8 h/año',
+    label: 'Básica',
+    sublabel: 'Objetivo de disponibilidad',
+    downtime: 'Por evaluar',
     desc: 'Despliegue estándar en una sola zona de disponibilidad. Apto para ambientes de desarrollo, pruebas y sistemas no críticos.',
     dotColor: 'bg-amber-500',
     badgeText: 'Dev / Testing',
   },
   {
     value: 'alta',
-    label: 'Alta Disponibilidad (99.9% SLA)',
-    sublabel: 'Multi-AZ con Balanceo',
-    downtime: '~8.7 h/año',
+    label: 'Alta Disponibilidad',
+    sublabel: 'Objetivo de disponibilidad',
+    downtime: 'Por evaluar',
     desc: 'Despliegue Multi-AZ con réplica síncrona en base de datos y balanceo de carga automático (ALB + Auto Scaling).',
     dotColor: 'bg-blue-500',
     badgeText: 'Recomendado',
   },
   {
     value: 'critica',
-    label: 'Misión Crítica (99.99% SLA)',
-    sublabel: 'Multi-Región Activo-Activo',
-    downtime: '~52.6 min/año',
+    label: 'Misión Crítica',
+    sublabel: 'Objetivo de disponibilidad',
+    downtime: 'Por evaluar',
     desc: 'Failover global en milisegundos con Route 53, aceleración perimetral con CloudFront y réplica global continua.',
     dotColor: 'bg-purple-500',
     badgeText: 'Enterprise 24/7',
@@ -186,54 +179,17 @@ const estadoInicial: FormState = {
 };
 
 export default function Planning() {
-  const { propuestas, agregarPropuesta, eliminarPropuesta, regionPrincipal, ambiente, multiplicadorAmbiente, agregarItemCosto } = useCloud();
+  const { propuestas, agregarPropuesta, eliminarPropuesta, regionPrincipal, refrescar } = useCloud();
+  const awsRegions = useAws<{ id: string; status: string }[]>('/aws/regions');
   const [form, setForm] = useState<FormState>({ ...estadoInicial, regionId: regionPrincipal });
   const [errores, setErrores] = useState<Partial<Record<keyof FormState, string>>>({});
   const [confirmacion, setConfirmacion] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
+  const [mensajeImportacion, setMensajeImportacion] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('Todos');
   const [propuestaDetalle, setPropuestaDetalle] = useState<PropuestaCloud | null>(null);
   const [categoriaServicios, setCategoriaServicios] = useState<string>('Todas');
-  const [tabModalDetalle, setTabModalDetalle] = useState<'finops' | 'resiliencia' | 'pilares' | 'recomendaciones'>('finops');
-  const [transferenciaExitosa, setTransferenciaExitosa] = useState(false);
-  const [mostrarAlertasForm, setMostrarAlertasForm] = useState(true);
-
-  // Simulación en tiempo real de la arquitectura del formulario
-  const simulacionActual = useMemo(() => {
-    return simularArquitecturaCloud(
-      {
-        usuariosEstimados: form.usuariosEstimados || 1000,
-        tipoAplicacion: form.tipoAplicacion,
-        disponibilidad: form.disponibilidad,
-        serviciosSeleccionados: form.serviciosSeleccionados,
-        presupuestoMaximo: form.presupuestoMaximo || 200,
-        rtoHoras: form.rtoHoras || 2,
-        rpoMinutos: form.rpoMinutos || 15,
-        cumplimiento: form.cumplimiento || [],
-        regionId: form.regionId,
-      },
-      multiplicadorAmbiente
-    );
-  }, [form, multiplicadorAmbiente]);
-
-  // Simulación en tiempo real de la propuesta abierta en el modal
-  const simulacionDetalle = useMemo(() => {
-    if (!propuestaDetalle) return null;
-    return simularArquitecturaCloud(
-      {
-        usuariosEstimados: propuestaDetalle.usuariosEstimados || 1000,
-        tipoAplicacion: propuestaDetalle.tipoAplicacion,
-        disponibilidad: propuestaDetalle.disponibilidad,
-        serviciosSeleccionados: propuestaDetalle.serviciosSeleccionados,
-        presupuestoMaximo: propuestaDetalle.presupuestoMaximo || 200,
-        rtoHoras: propuestaDetalle.rtoHoras || 2,
-        rpoMinutos: propuestaDetalle.rpoMinutos || 15,
-        cumplimiento: propuestaDetalle.cumplimiento || [],
-        regionId: propuestaDetalle.regionId,
-      },
-      multiplicadorAmbiente
-    );
-  }, [propuestaDetalle, multiplicadorAmbiente]);
 
   useEffect(() => {
     setForm((f) => ({ ...f, regionId: regionPrincipal }));
@@ -309,19 +265,18 @@ export default function Planning() {
     return Object.keys(e).length === 0;
   };
 
-  const manejarEnvio = (e: React.FormEvent) => {
+  const manejarEnvio = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validar()) return;
-    agregarPropuesta({
+    try {
+      await agregarPropuesta({
       ...form,
-      costoEstimadoMensual: simulacionActual.costoMensualEstimado,
-      costoEstimadoAnual: simulacionActual.costoAnualEstimado,
-      scoreWellArchitected: simulacionActual.pilares.scoreGlobal,
-      desgloseServicios: simulacionActual.desglose,
-    });
-    setConfirmacion(true);
-    setForm({ ...estadoInicial, regionId: regionPrincipal });
-    setTimeout(() => setConfirmacion(false), 4000);
+      });
+      setErrorGuardado(null);
+      setConfirmacion(true);
+      setForm({ ...estadoInicial, regionId: regionPrincipal });
+      setTimeout(() => setConfirmacion(false), 4000);
+    } catch (cause) { setErrorGuardado(cause instanceof Error ? cause.message : String(cause)); }
   };
 
   const exportarCsv = () => {
@@ -341,59 +296,27 @@ export default function Planning() {
     URL.revokeObjectURL(url);
   };
 
-  const transferirACostos = () => {
-    if (!simulacionDetalle) return;
-    simulacionDetalle.desglose.forEach((d) => {
-      const s = serviciosAWS.find((x) => x.id === d.servicioId);
-      if (!s) return;
-      agregarItemCosto({
-        servicioId: d.servicioId,
-        cantidad: d.cantidadEstimada,
-        horasMes: s.tipoCobro === 'hora' ? 730 : 1,
-        configuracion: d.explicacionCalculo,
-      });
-    });
-    setTransferenciaExitosa(true);
-    setTimeout(() => setTransferenciaExitosa(false), 3500);
+  const importarJson = async (file?: File) => {
+    if (!file) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (typeof parsed !== 'object' || parsed === null) throw new Error('Archivo JSON inválido');
+      const data = parsed as Record<string, unknown>;
+      const proposals = Array.isArray(data.propuestas) ? data.propuestas : Array.isArray(data.proposals) ? data.proposals : data.propuesta ? [data.propuesta] : [];
+      const costItems = Array.isArray(data.itemsCosto) ? data.itemsCosto : Array.isArray(data.costItems) ? data.costItems : [];
+      if (!proposals.length && !costItems.length) throw new Error('No se encontraron propuestas ni ítems de costo');
+      const result = await api<{ data: { proposals: number; costItems: number } }>('/import/browser', { method: 'POST', body: JSON.stringify({ proposals, costItems }) });
+      await refrescar();
+      setMensajeImportacion(`Importados: ${result.data.proposals} propuestas y ${result.data.costItems} ítems.`);
+    } catch (error) { setMensajeImportacion(error instanceof Error ? error.message : String(error)); }
   };
 
   const exportarPropuestaJson = (p: PropuestaCloud) => {
-    const sim = simularArquitecturaCloud(p, multiplicadorAmbiente);
-    const reporte = {
-      titulo: 'Auditoría y Planificación de Arquitectura Cloud — AWS',
-      generadoPor: 'CloudOps Platform',
-      fecha: new Date().toISOString(),
-      propuesta: p,
-      simulacionFinOps: {
-        costoMensualEstimadoUSD: sim.costoMensualEstimado,
-        costoAnualEstimadoUSD: sim.costoAnualEstimado,
-        costoPorUsuarioMensualUSD: sim.costoPorUsuarioMensual,
-        presupuestoMaximoUSD: sim.presupuestoMaximo,
-        diferenciaPresupuestoUSD: sim.diferenciaPresupuesto,
-        porcentajeUsoPresupuesto: `${sim.porcentajeUsoPresupuesto}%`,
-        estadoFinOps: sim.estadoPresupuesto,
-        desgloseServicios: sim.desglose,
-      },
-      resilienciaSLA: {
-        slaPorcentaje: `${sim.slaPorcentaje}%`,
-        downtimeAnualMaximo: sim.downtimeAnualTexto,
-        estrategiaRTO: sim.estrategiaRto,
-        estrategiaRPO: sim.estrategiaRpo,
-      },
-      wellArchitected: {
-        scoreGlobal: `${sim.pilares.scoreGlobal}%`,
-        pilares: sim.pilares,
-      },
-      observacionesArquitectonicas: sim.incoherencias,
-      cumplimientoNormativo: sim.cumplimientoAnalisis,
-      recomendacionesFinOps: sim.recomendacionesAhorro,
-    };
-
-    const blob = new Blob([JSON.stringify(reporte, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ propuesta: p, fechaExportacion: new Date().toISOString(), tipo: 'plan_local' }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `auditoria-arquitectura-${p.nombre.toLowerCase().replace(/\s+/g, '-')}.json`;
+    a.download = `propuesta-${p.nombre.toLowerCase().replace(/\s+/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -488,30 +411,7 @@ export default function Planning() {
               <DollarSign size={13} />
               <span>Tope ${form.presupuestoMaximo || 200}/m</span>
             </div>
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold border ${
-                simulacionActual.estadoPresupuesto === 'optimo' || simulacionActual.estadoPresupuesto === 'holgado'
-                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-              }`}
-            >
-              <Zap size={13} />
-              <span>Simulado: ${simulacionActual.costoMensualEstimado.toFixed(2)}/m</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-500/10 text-indigo-500 font-bold border border-indigo-500/20">
-              <Award size={13} />
-              <span>Score {simulacionActual.pilares.scoreGlobal}%</span>
-            </div>
-            {simulacionActual.incoherencias.length > 0 && (
-              <div
-                onClick={() => setMostrarAlertasForm((v) => !v)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-600 font-bold border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-colors"
-                title="Haz clic para ver las observaciones arquitectónicas"
-              >
-                <AlertTriangle size={13} />
-                <span>{simulacionActual.incoherencias.length} alertas</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-500/10 text-indigo-500 font-bold border border-indigo-500/20"><Zap size={13} /><span>{form.serviciosSeleccionados.length} servicios previstos</span></div>
           </div>
         </div>
 
@@ -612,11 +512,10 @@ export default function Planning() {
                 <Select
                   value={form.regionId}
                   onChange={(v) => actualizar('regionId', v)}
-                  opciones={regiones.map((r) => ({
+                  opciones={(awsRegions.data ?? [{ id: regionPrincipal, status: 'consultando' }]).filter((r) => r.status !== 'not-opted-in').map((r) => ({
                     value: r.id,
-                    label: r.nombre,
-                    badge: `${r.latenciaMs}ms`,
-                    sublabel: `${r.zonasDisponibilidad} AZs · ${r.ubicacion}`,
+                    label: regionGeometry[r.id]?.name ?? r.id,
+                    sublabel: r.id,
                   }))}
                   buscable={true}
                   className="w-full"
@@ -957,7 +856,7 @@ export default function Planning() {
                 <span>Objetivo de Disponibilidad y SLA</span>
                 <InfoTooltip
                   titulo="Niveles de Disponibilidad (SLA)"
-                  descripcion="Básica (99.5%): ~43.8h de caída al año. Alta (99.9%): ~8.7h/año con Multi-AZ. Misión Crítica (99.99%): ~52.6 min/año con Multi-Región activo-activo."
+                  descripcion="La selección expresa un objetivo de diseño. El SLA real depende de servicios y configuraciones concretas."
                 />
               </label>
             </div>
@@ -1134,163 +1033,20 @@ export default function Planning() {
             </div>
           </div>
 
-          {simulacionActual.incoherencias.length > 0 && mostrarAlertasForm && (
-            <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-2 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-600 flex items-center gap-1.5">
-                  <AlertTriangle size={15} />
-                  Observaciones Arquitectónicas Detectadas ({simulacionActual.incoherencias.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMostrarAlertasForm(false)}
-                  className="text-[10px] text-muted hover:text-ink cursor-pointer"
-                >
-                  Ocultar
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                {simulacionActual.incoherencias.map((inc, i) => (
-                  <div
-                    key={i}
-                    className={`p-2.5 rounded-xl border flex items-start gap-2 ${
-                      inc.tipo === 'error'
-                        ? 'border-rose-500/30 bg-rose-500/5 text-rose-700 dark:text-rose-300'
-                        : inc.tipo === 'advertencia'
-                        ? 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300'
-                        : 'border-blue-500/30 bg-blue-500/5 text-blue-700 dark:text-blue-300'
-                    }`}
-                  >
-                    <span className="mt-0.5 shrink-0">
-                      {inc.tipo === 'error' ? (
-                        <ShieldAlert size={14} className="text-rose-500" />
-                      ) : (
-                        <AlertCircle size={14} className="text-amber-500" />
-                      )}
-                    </span>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-[11px]">{inc.titulo}</span>
-                        <span className="text-[9px] uppercase px-1 rounded bg-card border border-line text-muted">
-                          {inc.pilar}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] opacity-90 mt-0.5 leading-snug">{inc.descripcion}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="p-4 rounded-2xl border border-blue-500/25 bg-gradient-to-br from-blue-500/5 via-card to-indigo-500/5 space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-ink flex items-center gap-1.5">
-                <Sparkles size={14} className="text-blue-500" />
-                Resumen Ejecutivo Simulado de la Arquitectura
-              </span>
-              <span className="font-mono text-[10px] text-muted">Alineado a AWS Well-Architected Framework</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-[11px]">
-              <div className="p-3 rounded-xl bg-canvas border border-line flex flex-col justify-between">
-                <div>
-                  <p className="text-muted text-[10px] uppercase font-bold tracking-wider">Fiabilidad & SLA</p>
-                  <p className="font-bold text-ink text-sm mt-0.5 capitalize">
-                    {form.disponibilidad} ({simulacionActual.slaPorcentaje}%)
-                  </p>
-                  <p className="text-[10px] text-muted mt-0.5">Downtime: {simulacionActual.downtimeAnualTexto}</p>
-                </div>
-                <div className="mt-2 pt-2 border-t border-line/60 flex items-center justify-between text-[10px]">
-                  <span className="text-muted">RTO {form.rtoHoras}h · RPO {form.rpoMinutos}m</span>
-                  <span className="font-semibold text-blue-500 truncate max-w-[120px]" title={simulacionActual.estrategiaRto}>
-                    {simulacionActual.estrategiaRto.split('/')[0]}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-canvas border border-line flex flex-col justify-between">
-                <div>
-                  <p className="text-muted text-[10px] uppercase font-bold tracking-wider">Carga & Capacidad</p>
-                  <p className="font-bold text-ink text-sm mt-0.5">
-                    {form.usuariosEstimados.toLocaleString()} usuarios
-                  </p>
-                  <p className="text-[10px] text-muted mt-0.5">{form.tipoAplicacion} · Región {form.regionId}</p>
-                </div>
-                <div className="mt-2 pt-2 border-t border-line/60 flex items-center justify-between text-[10px]">
-                  <span className="text-muted">Flota:</span>
-                  <span className="font-semibold text-ink">{form.serviciosSeleccionados.length} componentes AWS</span>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-canvas border border-line flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wider">Costeo FinOps Simulado</p>
-                    <span
-                      className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded border ${
-                        simulacionActual.estadoPresupuesto === 'optimo' || simulacionActual.estadoPresupuesto === 'holgado'
-                          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                          : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                      }`}
-                    >
-                      {simulacionActual.porcentajeUsoPresupuesto}% uso
-                    </span>
-                  </div>
-                  <p className="font-bold text-amber-500 text-sm mt-0.5">
-                    ${simulacionActual.costoMensualEstimado.toFixed(2)} USD/mes
-                  </p>
-                  <p className="text-[10px] text-muted">
-                    Tope asignado: ${form.presupuestoMaximo || 200}/mes
-                  </p>
-                </div>
-                <div className="mt-2 pt-2 border-t border-line/60 flex items-center justify-between text-[10px]">
-                  <span className="text-muted">
-                    {simulacionActual.diferenciaPresupuesto >= 0 ? 'Holgura:' : 'Déficit:'}
-                  </span>
-                  <span
-                    className={`font-semibold font-mono ${
-                      simulacionActual.diferenciaPresupuesto >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                    }`}
-                  >
-                    {simulacionActual.diferenciaPresupuesto >= 0 ? '+' : '-'}$
-                    {Math.abs(simulacionActual.diferenciaPresupuesto).toFixed(2)}/m
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-canvas border border-line flex flex-col justify-between">
-                <div>
-                  <p className="text-muted text-[10px] uppercase font-bold tracking-wider">Well-Architected & Compliance</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="font-bold text-indigo-500 text-sm">
-                      Score {simulacionActual.pilares.scoreGlobal}%
-                    </p>
-                    <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-500 font-semibold border border-indigo-500/20">
-                      5 Pilares
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted mt-0.5">
-                    {form.cumplimiento?.length || 0} certificaciones auditadas
-                  </p>
-                </div>
-                <div className="mt-2 pt-2 border-t border-line/60 flex items-center justify-between text-[10px]">
-                  <span className="text-muted">Costo unitario:</span>
-                  <span className="font-semibold font-mono text-ink">
-                    ${simulacionActual.costoPorUsuarioMensual.toFixed(4)}/usr/m
-                  </span>
-                </div>
-              </div>
-            </div>
+          <div className="p-4 rounded-2xl border border-blue-500/25 bg-gradient-to-br from-blue-500/5 via-card to-indigo-500/5 text-xs text-muted">
+            <p className="font-bold text-ink">Resumen de la propuesta</p>
+            <p className="mt-1">{form.usuariosEstimados.toLocaleString()} usuarios · {form.serviciosSeleccionados.length} servicios seleccionados · {form.regionId} · presupuesto objetivo {form.presupuestoMaximo ? `$${form.presupuestoMaximo}/mes` : 'sin definir'}.</p>
+            <p className="mt-1">El costo y el cumplimiento requieren cotizaciones y una evaluación formal; se consultan por separado en Costos y Seguridad.</p>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-line">
             <div className="flex items-center gap-2">
               {confirmacion && (
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-500/10 px-3.5 py-2 rounded-xl border border-emerald-500/20 animate-fade-up">
-                  <CheckCircle2 size={16} /> ¡Propuesta registrada con persistencia en localStorage!
+                  <CheckCircle2 size={16} /> Propuesta guardada en PostgreSQL local.
                 </div>
               )}
+              {errorGuardado && <p className="text-xs text-rose-600">{errorGuardado}</p>}
             </div>
 
             <div className="flex items-center gap-3">
@@ -1354,8 +1110,13 @@ export default function Planning() {
             >
               <FileSpreadsheet size={14} className="text-emerald-600" /> Exportar CSV
             </button>
+            <label className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-line bg-card px-3 text-xs font-bold text-ink hover:bg-canvas cursor-pointer">
+              <Download size={14} className="text-blue-600" /> Importar JSON anterior
+              <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { void importarJson(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
           </div>
         </div>
+        {mensajeImportacion && <p className="mb-3 text-xs text-blue-600">{mensajeImportacion}</p>}
 
         {propuestasFiltradas.length === 0 ? (
           <Card className="py-12 text-center text-muted text-xs">
@@ -1402,20 +1163,16 @@ export default function Planning() {
 
                   <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-line/60 text-xs">
                     <div>
-                      <p className="text-[10px] text-muted">Costo Simulado</p>
-                      <p className="font-bold text-amber-500 font-mono">
-                        ${(p.costoEstimadoMensual || p.presupuestoMaximo || 200).toFixed(2)}/m
-                      </p>
+                      <p className="text-[10px] text-muted">Servicios</p>
+                      <p className="font-bold text-amber-500 font-mono">{p.serviciosSeleccionados.length}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-muted">Presupuesto</p>
-                      <p className="font-bold text-ink">${p.presupuestoMaximo || 200}/m</p>
+                      <p className="font-bold text-ink">{p.presupuestoMaximo == null ? 'Sin definir' : `$${p.presupuestoMaximo}/m`}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-muted">Well-Architected</p>
-                      <p className="font-bold text-indigo-500">
-                        Score {p.scoreWellArchitected || 85}%
-                      </p>
+                      <p className="text-[10px] text-muted">Evaluación</p>
+                      <p className="font-bold text-indigo-500">Pendiente</p>
                     </div>
                   </div>
                 </div>
@@ -1446,492 +1203,19 @@ export default function Planning() {
         subtitulo={`Auditoría Técnica y Arquitectura Cloud · ${propuestaDetalle?.tipoAplicacion} · Región ${propuestaDetalle?.regionId}`}
         tamano="xl"
       >
-        {propuestaDetalle && simulacionDetalle && (
-          <div className="space-y-5 text-xs">
-            {/* Header del Modal con KPIs rápidos */}
-            <div className="p-3.5 rounded-2xl bg-canvas border border-line flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-600/10 text-blue-600 border border-blue-500/20 font-bold">
-                  <Award size={20} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-ink text-sm">{propuestaDetalle.tipoAplicacion} App</span>
-                    <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-card border border-line text-muted">
-                      {propuestaDetalle.regionId}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        simulacionDetalle.estadoPresupuesto === 'optimo' || simulacionDetalle.estadoPresupuesto === 'holgado'
-                          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                          : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                      }`}
-                    >
-                      {simulacionDetalle.estadoPresupuesto === 'optimo'
-                        ? 'En Presupuesto'
-                        : simulacionDetalle.estadoPresupuesto === 'holgado'
-                        ? 'Superávit FinOps'
-                        : 'Sobrecosto Presupuestario'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted mt-0.5 line-clamp-1">{propuestaDetalle.descripcion}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
-                <div className="text-right">
-                  <p className="text-[10px] text-muted">Well-Architected</p>
-                  <p className="font-bold text-indigo-500 text-sm">{simulacionDetalle.pilares.scoreGlobal}% Global</p>
-                </div>
-                <div className="h-8 w-px bg-line/80 mx-1" />
-                <div className="text-right">
-                  <p className="text-[10px] text-muted">Costo Simulado</p>
-                  <p className="font-bold text-amber-500 text-sm font-mono">
-                    ${simulacionDetalle.costoMensualEstimado.toFixed(2)}/m
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Pestañas de Navegación del Modal */}
-            <div className="flex items-center gap-1.5 border-b border-line pb-2 overflow-x-auto scrollbar-none text-xs">
-              <button
-                type="button"
-                onClick={() => setTabModalDetalle('finops')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  tabModalDetalle === 'finops'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-muted hover:text-ink hover:bg-canvas'
-                }`}
-              >
-                <DollarSign size={14} /> Desglose FinOps (${simulacionDetalle.costoMensualEstimado.toFixed(0)})
-              </button>
-              <button
-                type="button"
-                onClick={() => setTabModalDetalle('resiliencia')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  tabModalDetalle === 'resiliencia'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-muted hover:text-ink hover:bg-canvas'
-                }`}
-              >
-                <ShieldCheck size={14} /> Resiliencia, SLA & DRP
-              </button>
-              <button
-                type="button"
-                onClick={() => setTabModalDetalle('pilares')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  tabModalDetalle === 'pilares'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-muted hover:text-ink hover:bg-canvas'
-                }`}
-              >
-                <Award size={14} /> Pilares & Compliance ({simulacionDetalle.pilares.scoreGlobal}%)
-              </button>
-              <button
-                type="button"
-                onClick={() => setTabModalDetalle('recomendaciones')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  tabModalDetalle === 'recomendaciones'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-muted hover:text-ink hover:bg-canvas'
-                }`}
-              >
-                <Sparkles size={14} /> Diagnóstico ({simulacionDetalle.incoherencias.length})
-              </button>
-            </div>
-
-            {/* PESTAÑA 1: FINOPS & DESGLOSE DE COSTOS */}
-            {tabModalDetalle === 'finops' && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="p-3 rounded-xl bg-canvas border border-line">
-                    <p className="text-muted text-[10px] uppercase font-bold">Costo Mensual Simulado</p>
-                    <p className="font-bold text-amber-500 text-base mt-0.5 font-mono">
-                      ${simulacionDetalle.costoMensualEstimado.toFixed(2)} USD
-                    </p>
-                    <p className="text-[10px] text-muted mt-0.5">Anual: ${simulacionDetalle.costoAnualEstimado.toFixed(2)} USD</p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-canvas border border-line">
-                    <p className="text-muted text-[10px] uppercase font-bold">Presupuesto Asignado</p>
-                    <p className="font-bold text-ink text-base mt-0.5 font-mono">
-                      ${propuestaDetalle.presupuestoMaximo || 200} USD/mes
-                    </p>
-                    <p className="text-[10px] text-muted mt-0.5">
-                      {simulacionDetalle.porcentajeUsoPresupuesto}% utilizado
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-canvas border border-line">
-                    <p className="text-muted text-[10px] uppercase font-bold">
-                      {simulacionDetalle.diferenciaPresupuesto >= 0 ? 'Holgura FinOps' : 'Déficit Presupuestario'}
-                    </p>
-                    <p
-                      className={`font-bold text-base mt-0.5 font-mono ${
-                        simulacionDetalle.diferenciaPresupuesto >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                      }`}
-                    >
-                      {simulacionDetalle.diferenciaPresupuesto >= 0 ? '+' : '-'}$
-                      {Math.abs(simulacionDetalle.diferenciaPresupuesto).toFixed(2)} USD
-                    </p>
-                    <p className="text-[10px] text-muted mt-0.5">
-                      {simulacionDetalle.diferenciaPresupuesto >= 0 ? 'Margen disponible' : 'Exceso sobre tope'}
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-canvas border border-line">
-                    <p className="text-muted text-[10px] uppercase font-bold">Costo Unitario por Usuario</p>
-                    <p className="font-bold text-ink text-base mt-0.5 font-mono">
-                      ${simulacionDetalle.costoPorUsuarioMensual.toFixed(4)} USD
-                    </p>
-                    <p className="text-[10px] text-muted mt-0.5">
-                      Para {propuestaDetalle.usuariosEstimados.toLocaleString()} usuarios
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-ink flex items-center gap-1.5">
-                      <Layers size={14} className="text-blue-500" />
-                      Desglose Detallado por Servicio AWS ({simulacionDetalle.desglose.length} componentes)
-                    </span>
-                    <span className="text-[10px] text-muted">Dimensionado según carga y SLA</span>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-xl border border-line">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-canvas/80 text-[10px] uppercase font-bold text-muted border-b border-line">
-                          <th className="p-2.5">Servicio AWS</th>
-                          <th className="p-2.5">Dimensionamiento y Capacidad</th>
-                          <th className="p-2.5 text-right">Tarifa Unit.</th>
-                          <th className="p-2.5 text-right">Subtotal Mensual</th>
-                          <th className="p-2.5 text-right">Subtotal Anual</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-line/60">
-                        {simulacionDetalle.desglose.map((d) => (
-                          <tr key={d.servicioId} className="hover:bg-canvas/50 transition-colors">
-                            <td className="p-2.5">
-                              <p className="font-bold text-ink">{d.nombre}</p>
-                              <span className="text-[10px] text-muted">{d.categoria}</span>
-                            </td>
-                            <td className="p-2.5">
-                              <p className="font-medium text-ink">{d.explicacionCalculo}</p>
-                              <span className="text-[10px] text-muted font-mono">
-                                Cantidad: {d.cantidadEstimada} ({d.unidadMedida})
-                              </span>
-                            </td>
-                            <td className="p-2.5 text-right font-mono text-muted text-[11px]">
-                              {d.costoUnitario === 0 ? 'Sin costo' : `$${d.costoUnitario}`}
-                            </td>
-                            <td className="p-2.5 text-right font-mono font-bold text-ink text-[11px]">
-                              ${d.subtotalMensual.toFixed(2)}
-                            </td>
-                            <td className="p-2.5 text-right font-mono text-muted text-[11px]">
-                              ${(d.subtotalMensual * 12).toFixed(2)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-canvas/90 border-t border-line font-bold text-xs">
-                          <td colSpan={3} className="p-2.5 text-ink">Total Mensual Proyectado (Entorno {ambiente})</td>
-                          <td className="p-2.5 text-right font-mono text-amber-500 text-sm">
-                            ${simulacionDetalle.costoMensualEstimado.toFixed(2)}
-                          </td>
-                          <td className="p-2.5 text-right font-mono text-muted text-xs">
-                            ${simulacionDetalle.costoAnualEstimado.toFixed(2)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PESTAÑA 2: RESILIENCIA, SLA & DRP */}
-            {tabModalDetalle === 'resiliencia' && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="p-3.5 rounded-xl bg-canvas border border-line space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold text-muted">SLA & Disponibilidad</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20 capitalize">
-                        {propuestaDetalle.disponibilidad}
-                      </span>
-                    </div>
-                    <p className="text-xl font-bold text-ink font-mono">{simulacionDetalle.slaPorcentaje}% SLA</p>
-                    <div className="pt-2 border-t border-line/60 space-y-1 text-[11px] text-muted">
-                      <p>• Caída admisible: <strong className="text-ink">{simulacionDetalle.downtimeAnualTexto}</strong></p>
-                      <p>• Redundancia: <strong className="text-ink">
-                        {propuestaDetalle.disponibilidad === 'critica'
-                          ? 'Multi-Región Activo-Activo'
-                          : propuestaDetalle.disponibilidad === 'alta'
-                          ? 'Multi-AZ con failover'
-                          : 'Mono-AZ'}
-                      </strong></p>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-canvas border border-line space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold text-muted">RTO Objetivo</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 font-mono">
-                        {propuestaDetalle.rtoHoras || 2} horas máx
-                      </span>
-                    </div>
-                    <p className="text-sm font-bold text-ink">{simulacionDetalle.estrategiaRto}</p>
-                    <p className="text-[11px] text-muted leading-relaxed">
-                      Tiempo máximo tolerable de parada antes de conmutar tráfico a destinos de contingencia.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-canvas border border-line space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold text-muted">RPO Objetivo</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
-                        {propuestaDetalle.rpoMinutos || 15} min máx
-                      </span>
-                    </div>
-                    <p className="text-sm font-bold text-ink">{simulacionDetalle.estrategiaRpo}</p>
-                    <p className="text-[11px] text-muted leading-relaxed">
-                      Límite de pérdida de datos tolerable. Exige replicación de transacciones y snapshots continuos.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-line bg-card space-y-2">
-                  <h4 className="font-bold text-ink text-xs flex items-center gap-1.5">
-                    <ShieldCheck size={14} className="text-blue-500" />
-                    Matriz de Conmutación por Error y Continuidad de Negocio
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] pt-1">
-                    <div className="p-2.5 rounded-lg bg-canvas border border-line">
-                      <p className="font-bold text-ink mb-1">Capa de Tráfico y DNS</p>
-                      <p className="text-muted leading-relaxed">
-                        Route 53 con comprobaciones de estado de latencia y failover global automatizado en segundos.
-                      </p>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-canvas border border-line">
-                      <p className="font-bold text-ink mb-1">Capa de Aplicación y Cómputo</p>
-                      <p className="text-muted leading-relaxed">
-                        Balanceador ALB con Auto Scaling distribuido en múltiples zonas de disponibilidad (Multi-AZ).
-                      </p>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-canvas border border-line">
-                      <p className="font-bold text-ink mb-1">Capa de Base de Datos</p>
-                      <p className="text-muted leading-relaxed">
-                        {propuestaDetalle.disponibilidad === 'basica'
-                          ? 'Instancia única con backups automáticos periódicos (sin réplica síncrona).'
-                          : 'RDS Multi-AZ con replicación síncrona en zona standby y failover en < 60s.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PESTAÑA 3: PILARES WELL-ARCHITECTED & CUMPLIMIENTO */}
-            {tabModalDetalle === 'pilares' && (
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl border border-line bg-card space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-ink flex items-center gap-1.5">
-                      <Award size={15} className="text-indigo-500" />
-                      Evaluación de los 5 Pilares del AWS Well-Architected Framework
-                    </span>
-                    <span className="font-bold font-mono text-indigo-500 bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/20">
-                      Score Global: {simulacionDetalle.pilares.scoreGlobal}%
-                    </span>
-                  </div>
-
-                  <div className="space-y-2.5 pt-1">
-                    {[
-                      { nombre: 'Seguridad', valor: simulacionDetalle.pilares.seguridad, desc: 'IAM de mínimo privilegio, cifrado KMS, WAF y VPC privada' },
-                      { nombre: 'Fiabilidad', valor: simulacionDetalle.pilares.fiabilidad, desc: 'Multi-AZ, Auto Scaling, balanceo ALB y conmutación automática' },
-                      { nombre: 'Eficiencia de Rendimiento', valor: simulacionDetalle.pilares.eficienciaRendimiento, desc: 'CloudFront CDN, elástica según usuarios concurrentes' },
-                      { nombre: 'Optimización de Costos', valor: simulacionDetalle.pilares.optimizacionCostos, desc: 'Uso eficiente de recursos FinOps y holgura presupuestaria' },
-                      { nombre: 'Excelencia Operativa', valor: simulacionDetalle.pilares.excelenciaOperativa, desc: 'Monitoreo CloudWatch, telemetría y alarmas automatizadas' },
-                    ].map((pilar) => (
-                      <div key={pilar.nombre} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-ink">{pilar.nombre}</span>
-                          <span className="font-mono text-muted">{pilar.valor}%</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-canvas border border-line overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              pilar.valor >= 80 ? 'bg-emerald-500' : pilar.valor >= 60 ? 'bg-blue-500' : 'bg-amber-500'
-                            }`}
-                            style={{ width: `${pilar.valor}%` }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-muted">{pilar.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-ink text-xs mb-2 flex items-center gap-1.5">
-                    <FileCheck2 size={14} className="text-emerald-500" />
-                    Diagnóstico de Marcos Normativos y Cumplimiento
-                  </h4>
-
-                  {simulacionDetalle.cumplimientoAnalisis.length === 0 ? (
-                    <div className="p-3 rounded-xl bg-canvas border border-line text-muted text-center text-xs">
-                      No se definieron marcos normativos específicos en esta propuesta.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {simulacionDetalle.cumplimientoAnalisis.map((m) => (
-                        <div
-                          key={m.id}
-                          className={`p-3 rounded-xl border space-y-1.5 ${
-                            m.cubierto
-                              ? 'border-emerald-500/30 bg-emerald-500/5'
-                              : 'border-amber-500/30 bg-amber-500/5'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-ink text-xs flex items-center gap-1.5">
-                              {m.cubierto ? (
-                                <CheckCheck size={14} className="text-emerald-500" />
-                              ) : (
-                                <AlertTriangle size={14} className="text-amber-500" />
-                              )}
-                              {m.id}
-                            </span>
-                            <span
-                              className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded border ${
-                                m.cubierto
-                                  ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30'
-                                  : 'bg-amber-500/15 text-amber-600 border-amber-500/30'
-                              }`}
-                            >
-                              {m.cubierto ? 'Controles Cubiertos' : 'Requiere Ajustes'}
-                            </span>
-                          </div>
-                          <p className="text-[10.5px] text-muted leading-snug">{m.descripcion}</p>
-
-                          <div className="pt-1.5 border-t border-line/60 text-[10px] space-y-1">
-                            <p className="text-muted">
-                              Respaldado por: <strong className="text-ink">{m.serviciosPresentes.join(', ') || 'Ninguno'}</strong>
-                            </p>
-                            {m.serviciosFaltantesRecomendados.length > 0 && (
-                              <p className="text-amber-600">
-                                Componentes faltantes: <strong>{m.serviciosFaltantesRecomendados.join(', ')}</strong>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* PESTAÑA 4: DIAGNÓSTICO & RECOMENDACIONES */}
-            {tabModalDetalle === 'recomendaciones' && (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="font-bold text-ink text-xs mb-2 flex items-center gap-1.5">
-                    <AlertTriangle size={14} className="text-amber-500" />
-                    Observaciones Arquitectónicas ({simulacionDetalle.incoherencias.length})
-                  </h4>
-
-                  {simulacionDetalle.incoherencias.length === 0 ? (
-                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-xs flex items-center gap-2">
-                      <CheckCircle2 size={16} /> ¡Excelente diseño! No se detectaron incoherencias arquitectónicas ni violaciones normativas.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {simulacionDetalle.incoherencias.map((inc, i) => (
-                        <div
-                          key={i}
-                          className={`p-3 rounded-xl border flex items-start gap-2.5 ${
-                            inc.tipo === 'error'
-                              ? 'border-rose-500/30 bg-rose-500/5'
-                              : inc.tipo === 'advertencia'
-                              ? 'border-amber-500/30 bg-amber-500/5'
-                              : 'border-blue-500/30 bg-blue-500/5'
-                          }`}
-                        >
-                          <span className="mt-0.5 shrink-0">
-                            {inc.tipo === 'error' ? (
-                              <ShieldAlert size={16} className="text-rose-500" />
-                            ) : (
-                              <AlertCircle size={16} className="text-amber-500" />
-                            )}
-                          </span>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-ink">{inc.titulo}</span>
-                              <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-card border border-line text-muted">
-                                Pilar: {inc.pilar}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-muted mt-1 leading-relaxed">{inc.descripcion}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-ink text-xs mb-2 flex items-center gap-1.5">
-                    <TrendingDown size={14} className="text-emerald-500" />
-                    Oportunidades de Optimización FinOps
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {simulacionDetalle.recomendacionesAhorro.map((rec, i) => (
-                      <div key={i} className="p-3 rounded-xl bg-canvas border border-line space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-ink text-xs">{rec.titulo}</span>
-                          <span className="font-mono text-emerald-500 font-bold text-[11px]">
-                            -${rec.ahorroPotencialMensual.toFixed(2)}/m
-                          </span>
-                        </div>
-                        <p className="text-[10.5px] text-muted leading-relaxed">{rec.detalle}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Footer de Acciones del Modal */}
-            <div className="pt-3 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                {transferenciaExitosa && (
-                  <span className="text-xs font-bold text-emerald-500 flex items-center gap-1">
-                    <CheckCircle2 size={14} /> ¡Servicios cargados con éxito en la calculadora de Costos!
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => exportarPropuestaJson(propuestaDetalle)}
-                  className="px-3.5 py-2 rounded-xl border border-line bg-canvas hover:bg-card text-muted hover:text-ink text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Download size={13} /> Exportar Auditoría JSON
-                </button>
-                <button
-                  type="button"
-                  onClick={transferirACostos}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-md shadow-blue-500/20"
-                >
-                  <RefreshCw size={13} /> Cargar en Calculadora de Costos
-                </button>
-              </div>
-            </div>
+        {propuestaDetalle && <div className="space-y-4 text-xs">
+          <div className="rounded-xl border border-line bg-canvas p-4"><p className="font-bold text-ink">Descripción</p><p className="mt-1 text-muted">{propuestaDetalle.descripcion}</p></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-line p-3"><p className="text-muted">Región</p><p className="font-bold text-ink">{propuestaDetalle.regionId}</p></div>
+            <div className="rounded-xl border border-line p-3"><p className="text-muted">Usuarios estimados</p><p className="font-bold text-ink">{propuestaDetalle.usuariosEstimados.toLocaleString()}</p></div>
+            <div className="rounded-xl border border-line p-3"><p className="text-muted">Disponibilidad deseada</p><p className="font-bold text-ink">{propuestaDetalle.disponibilidad}</p></div>
+            <div className="rounded-xl border border-line p-3"><p className="text-muted">Presupuesto máximo</p><p className="font-bold text-ink">{propuestaDetalle.presupuestoMaximo == null ? 'No definido' : `$${propuestaDetalle.presupuestoMaximo}/mes`}</p></div>
           </div>
-        )}
+          <div className="rounded-xl border border-line p-3"><p className="font-bold text-ink">Servicios previstos</p><p className="mt-1 text-muted">{propuestaDetalle.serviciosSeleccionados.join(', ')}</p></div>
+          <div className="rounded-xl border border-line p-3"><p className="font-bold text-ink">Objetivo</p><p className="mt-1 text-muted">{propuestaDetalle.objetivoMigracion}</p></div>
+          <p className="text-muted">Esta propuesta es un plan local. Consulta ofertas AWS en Servicios o Costos para crear una estimación y Seguridad para revisar controles observados.</p>
+          <button type="button" onClick={() => exportarPropuestaJson(propuestaDetalle)} className="rounded-xl border border-line bg-canvas px-4 py-2 font-bold text-blue-600"><Download size={13} className="inline mr-1" />Exportar propuesta JSON</button>
+        </div>}
       </Modal>
     </div>
   );

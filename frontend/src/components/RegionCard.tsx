@@ -1,7 +1,7 @@
 import type { Region } from '../types/cloud';
 import { Card } from './ui/Card';
 import { StatusBadge } from './ui/StatusBadge';
-import { Wifi, Layers, Leaf, MapPin } from 'lucide-react';
+import { Wifi, Layers, MapPin } from 'lucide-react';
 
 export function RegionCard({ region, onClick }: { region: Region; onClick?: () => void }) {
   return (
@@ -19,7 +19,7 @@ export function RegionCard({ region, onClick }: { region: Region; onClick?: () =
           <div className="flex flex-col items-end gap-1.5 shrink-0">
             <StatusBadge
               nivel={region.estado}
-              texto={region.estado.charAt(0).toUpperCase() + region.estado.slice(1)}
+              texto={region.estado === 'inactivo' ? 'No habilitada' : 'Habilitada'}
               pulso={region.estado === 'activo'}
             />
             {region.principal && (
@@ -37,7 +37,7 @@ export function RegionCard({ region, onClick }: { region: Region; onClick?: () =
             </div>
             <div>
               <p className="text-[11px] text-muted leading-none">Zonas (AZs)</p>
-              <p className="text-sm font-bold text-ink mt-0.5">{region.zonasDisponibilidad}</p>
+              <p className="text-sm font-bold text-ink mt-0.5">{Number.isFinite(region.zonasDisponibilidad) ? region.zonasDisponibilidad : '—'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2.5">
@@ -46,7 +46,7 @@ export function RegionCard({ region, onClick }: { region: Region; onClick?: () =
             </div>
             <div>
               <p className="text-[11px] text-muted leading-none">Latencia</p>
-              <p className="text-sm font-bold text-ink mt-0.5">{region.latenciaMs} ms</p>
+              <p className="text-sm font-bold text-ink mt-0.5">{Number.isFinite(region.latenciaMs) ? `${region.latenciaMs} ms` : '—'}</p>
             </div>
           </div>
         </div>
@@ -54,12 +54,7 @@ export function RegionCard({ region, onClick }: { region: Region; onClick?: () =
 
       <div className="space-y-2 border-t border-line/60 pt-3">
         <div className="flex items-center justify-between text-xs text-muted">
-          <span>Servicios desplegados ({region.serviciosDesplegados.length})</span>
-          {region.energiaVerde && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-              <Leaf size={12} /> Carbono neutral
-            </span>
-          )}
+          <span>Servicios desplegados ({region.datosConsultados ? region.serviciosDesplegados.length : '—'})</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {region.serviciosDesplegados.map((s) => (

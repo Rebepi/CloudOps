@@ -34,8 +34,7 @@ export interface ServicioAWS {
   categoria: CategoriaServicio;
   descripcion: string;
   funcionPrincipal: string;
-  enUso: boolean;
-  precioUnitario: number;
+  enUso?: boolean;
   unidad: string;
   tipoCobro?: TipoCobroServicio;
   responsabilidad: 'AWS' | 'Cliente' | 'Compartida';
@@ -49,13 +48,14 @@ export interface Region {
   id: string;
   nombre: string;
   ubicacion: string;
-  continente: 'América' | 'Europa' | 'Asia-Pacífico';
+  continente: 'América' | 'Europa' | 'Asia-Pacífico' | 'África' | 'Oriente Medio';
   zonasDisponibilidad: number;
   serviciosDesplegados: string[];
   estado: Estado;
   latenciaMs: number;
   principal: boolean;
   energiaVerde?: boolean;
+  datosConsultados?: boolean;
   coordenadas: { x: number; y: number };
   gps: [number, number];
 }
@@ -87,6 +87,12 @@ export interface ItemCosto {
   cantidad: number;
   horasMes: number;
   configuracion?: string;
+  precioUnitario?: number | null;
+  unidadPrecio?: string;
+  skuPrecio?: string;
+  codigoServicioPrecio?: string;
+  regionPrecio?: string | null;
+  fechaPrecio?: string;
 }
 
 export interface ControlSeguridad {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { obtenerPrecios, invalidarCache, SERVICIOS_ESTATICOS } from '../services/pricingService';
+import { obtenerPrecios, invalidarCache } from '../services/pricingService';
 import type { PrecioLive } from '../services/pricingService';
+import { useCloud } from '../context/CloudContext';
 
 interface UsePreciosResult {
   precios: Record<string, PrecioLive>;
@@ -8,8 +9,8 @@ interface UsePreciosResult {
   error: string | null;
   refrescar: () => void;
 }
-
 export function usePrecios(): UsePreciosResult {
+  const { regionPrincipal } = useCloud();
   const [precios, setPrecios] = useState<Record<string, PrecioLive>>({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +21,7 @@ export function usePrecios(): UsePreciosResult {
     setCargando(true);
     setError(null);
 
-    obtenerPrecios()
+    obtenerPrecios(regionPrincipal)
       .then((resultado) => {
         if (!cancelado) {
           setPrecios(resultado);
@@ -35,7 +36,7 @@ export function usePrecios(): UsePreciosResult {
       });
 
     return () => { cancelado = true; };
-  }, [tick]);
+  }, [tick, regionPrincipal]);
 
   const refrescar = () => {
     invalidarCache();
@@ -44,5 +45,3 @@ export function usePrecios(): UsePreciosResult {
 
   return { precios, cargando, error, refrescar };
 }
-
-export { SERVICIOS_ESTATICOS };
