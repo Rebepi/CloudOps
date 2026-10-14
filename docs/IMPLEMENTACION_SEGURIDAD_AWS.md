@@ -39,11 +39,14 @@ Tablas principales:
 
 - `projects`: proyecto y contexto de negocio.
 - `security_assessments`: ejecución, tipo, estado, puntaje, cobertura y resumen.
-- `security_findings`: hallazgos normalizados con fuente, severidad, evidencia y recomendación.
+- `security_findings`: hallazgos normalizados con fuente, severidad, evidencia, recomendación, huella y ciclo de vida.
+- `security_finding_events`: auditoría de cambios de estado, responsable y justificación.
 - `project_artifacts`: metadatos del ZIP, nombre, tamaño y SHA-256; no conserva el contenido.
+- `assessment_schedules` y `assessment_runs`: programaciones y su historial de ejecuciones.
 
-Migraciones: `backend/migrations/004_projects_security.cjs` y
-`backend/migrations/005_code_artifacts.cjs`.
+Migraciones: `backend/migrations/004_projects_security.cjs`,
+`backend/migrations/005_code_artifacts.cjs` y
+`backend/migrations/006_security_lifecycle.cjs`.
 
 ### 2.2 Análisis de ZIP
 
@@ -102,7 +105,9 @@ Todos los resultados se convierten al formato interno:
 - estado;
 - recurso afectado;
 - recomendación;
-- evidencia técnica.
+- evidencia técnica;
+- huella estable (`fingerprint`);
+- marco de referencia (`framework`).
 
 El puntaje parte de 100 y descuenta según severidad. La cobertura indica cuántas fuentes
 se pudieron observar realmente. Un puntaje alto con cobertura baja no debe interpretarse
@@ -110,6 +115,23 @@ como garantía de seguridad.
 
 Los hallazgos informativos de cobertura de Security Hub indican servicios que no están
 activos. No equivalen automáticamente a vulnerabilidades explotables.
+
+Antes de puntuar, cada evaluación:
+
+- **deduplica** hallazgos por huella estable (`source:externalId`, o hash de
+  `source + category + title + resource` como respaldo), conservando el de mayor
+  severidad y prioridad de fuente (cloudops > security-hub > aws-config >
+  amazon-inspector > osv);
+- **excluye del puntaje** los hallazgos de categoría `coverage` (controles declarados
+  fuera de alcance) para que una fuente no disponible no altere artificialmente el
+  puntaje;
+- **etiqueta el marco** ligero: OWASP Top 10 para código/web y mapeo a FSBP/CIS para
+  cuenta AWS;
+- registra la **versión de metodología** (`2026.10`) para que las comparaciones futuras
+  sean reproducibles.
+
+Implementación: `backend/src/findingFingerprint.ts` (huella y deduplicación) y
+`backend/src/findingFramework.ts` (marco y aplicabilidad).
 
 ## 3. Autenticación AWS implementada
 
@@ -207,7 +229,9 @@ Primera línea base AWS guardada:
 
 El puntaje es bruto y todavía cuenta duplicados entre controles propios y Security Hub,
 además de controles de servicios declarados fuera de alcance como GuardDuty e Inspector.
-No debe entregarse a un cliente hasta implementar deduplicación y aplicabilidad.
+Las evaluaciones nuevas ya aplican deduplicación y aplicabilidad (sección 2.4); vuelve a
+ejecutar la auditoría para regenerar la línea base con el criterio corregido antes de
+entregarla a un cliente.
 
 ## 5. Decisiones de alcance y costos
 
@@ -244,13 +268,32 @@ Endpoints principales:
 | `GET /api/v1/projects/:id` | detalle del proyecto |
 | `POST /api/v1/projects/:id/security/assessments/aws` | evaluación AWS persistente |
 | `POST /api/v1/projects/:id/security/assessments/code` | evaluación ZIP asíncrona |
+| `POST /api/v1/projects/:id/security/assessments/full` | evaluación combinada AWS + código (ZIP) |
+| `POST /api/v1/projects/:id/security/assessments/repository` | evaluación de repositorio Git asíncrona |
 | `GET /api/v1/projects/:id/security/assessments` | historial |
 | `GET /api/v1/projects/:id/security/assessments/:assessmentId` | evaluación y evidencias |
+| `GET /api/v1/projects/:id/security/assessments/:assessmentId/comparison` | cambios frente a la evaluación anterior |
+| `GET /api/v1/projects/:id/security/findings/:findingId/events` | auditoría de cambios del hallazgo |
+| `PATCH /api/v1/projects/:id/security/findings/:findingId` | ciclo de vida del hallazgo |
+| `GET/POST /api/v1/projects/:id/security/schedules` | listar y crear programaciones |
+| `PATCH/DELETE /api/v1/projects/:id/security/schedules/:scheduleId` | editar o borrar una programación |
+| `POST /api/v1/projects/:id/security/schedules/:scheduleId/run` | ejecución manual de una programación |
+| `GET /api/v1/projects/:id/security/runs` | historial de ejecuciones programadas |
+| `POST /api/v1/projects/:id/repository` | conectar GitHub o GitLab |
 
 En la interfaz:
 
 - **Proyectos** administra el portafolio;
-- **Detalle de proyecto** ejecuta AWS o ZIP y muestra historial;
+- **Detalle de proyecto** ejecuta AWS, ZIP, repositorio o evaluación **completa
+  (AWS + código)**, y muestra historial;
+- el panel de **comparación** resume nuevos, corregidos, recurrentes, cambios de
+  severidad y variación de puntaje y cobertura;
+- cada hallazgo permite **ciclo de vida** (estado, responsable, fecha límite,
+  justificación y comentario) con auditoría de eventos;
+- el botón **Informe PDF** abre el informe imprimible (impresión del navegador);
+- el panel de **evaluaciones programadas** crea, pausa, ejecuta y elimina
+  programaciones;
+- el panel de **repositorio Git** conecta y analiza GitHub o GitLab;
 - **Seguridad** consulta IAM, CloudTrail, Security Hub, Config e Inspector en vivo;
 - la tarjeta de conexión muestra si CloudOps usa un rol asumido;
 - FSBP aparece con su estado `PENDING`, `READY` o error;
@@ -304,8 +347,9 @@ npm run security:baseline -- <project-id>
 3. Esperar a que finalice la tarea asíncrona.
 4. Revisar separados los hallazgos de código, secretos, IaC, dependencias y OSV.
 
-Actualmente las ejecuciones AWS y ZIP quedan como evaluaciones distintas. La vista y el
-informe combinado son parte del roadmap pendiente.
+Actualmente las ejecuciones AWS y ZIP quedan como evaluaciones distintas, salvo que se
+use la evaluación **completa (AWS + código)** que combina ambas fuentes en un solo
+puntaje, resumen e informe.
 
 ## 8. Retiro seguro de access keys root
 
@@ -399,9 +443,14 @@ uso sin convertir créditos en una supuesta garantía de costo cero.
 
 ### P1 — mayor valor para clientes
 
-#### 11.4 Comparación entre evaluaciones
+#### 11.4 Comparación entre evaluaciones (implementado)
 
-Mostrar por proyecto:
+Estado: implementado. La comparación se calcula al vuelo con la huella estable de
+hallazgo (sección 2.4) y se expone en
+`GET /api/v1/projects/:id/security/assessments/:assessmentId/comparison` y en el panel
+de comparación del detalle de proyecto.
+
+Muestra por proyecto:
 
 - nuevos;
 - corregidos;
@@ -409,15 +458,14 @@ Mostrar por proyecto:
 - cambio de severidad;
 - cambio de puntaje y cobertura.
 
-Clave de comparación propuesta: `source + external_id`; como respaldo, una huella estable
+Clave de comparación: `source + external_id`; como respaldo, una huella estable
 de `source + category + title + resource`.
 
-Hecho cuando dos evaluaciones comparables producen un resumen y una lista verificable de
-cambios sin duplicar hallazgos.
+#### 11.5 Ciclo de vida de hallazgos (implementado)
 
-#### 11.5 Ciclo de vida de hallazgos
+Estado: implementado sobre la columna `security_findings.status`.
 
-Estados pendientes de implementar:
+Estados:
 
 - abierto;
 - en tratamiento;
@@ -425,13 +473,17 @@ Estados pendientes de implementar:
 - falso positivo;
 - riesgo aceptado.
 
-Agregar responsable, comentario, fecha límite, justificación, aprobador y auditoría de
-cambios. Un nuevo análisis no debe borrar una aceptación de riesgo válida, pero sí debe
-indicar si cambió la evidencia o severidad.
+Incluye responsable, comentario, fecha límite, justificación y auditoría de cambios
+(`security_finding_events`). Un nuevo análisis hereda el estado por huella para no
+borrar una aceptación de riesgo válida, y registra eventos cuando cambia la evidencia o
+la severidad.
 
-#### 11.6 Informe PDF profesional
+#### 11.6 Informe PDF profesional (implementado)
 
-Contenido mínimo:
+Estado: implementado con impresión del navegador (`window.print`) sobre el componente
+`SecurityReportDocument`, sin dependencias nuevas.
+
+Contenido:
 
 - portada y datos del cliente;
 - alcance y limitaciones;
@@ -445,22 +497,31 @@ Contenido mínimo:
 
 ### P2 — automatización y fuentes
 
-#### 11.7 Evaluaciones programadas y alertas
+#### 11.7 Evaluaciones programadas y alertas (implementado)
 
-- programación semanal o mensual;
+Estado: implementado (`backend/src/scheduler.ts` y tablas `assessment_schedules` y
+`assessment_runs`).
+
+- programación diaria, semanal o mensual;
 - alerta solo ante hallazgo nuevo, aumento de severidad, caída de cobertura o fallo;
-- reintentos limitados;
+- reintentos limitados (máximo 3);
 - historial de ejecuciones;
-- zona horaria explícita.
+- zona horaria explícita (por defecto `America/Lima`);
+- destino de alerta opcional vía webhook (`SECURITY_ALERT_WEBHOOK`) o email por
+  programación.
 
-#### 11.8 Repositorios Git
+#### 11.8 Repositorios Git (implementado)
+
+Estado: implementado (`backend/src/repository.ts`).
 
 - GitHub o GitLab además de ZIP;
-- OAuth/App o token de alcance mínimo;
+- token de alcance mínimo por variable de entorno (`CLOUDOPS_REPOSITORY_TOKEN`), no se
+  guarda en el proyecto;
 - rama y commit asociados a cada evaluación;
-- webhooks o ejecución manual;
-- no almacenar el repositorio completo después del análisis;
-- protección de secretos y repositorios privados.
+- ejecución manual desde el detalle del proyecto;
+- el repositorio no se conserva después del análisis;
+- se calcula SHA-256 durante la descarga y se elimina el archivo temporal al finalizar;
+- la descarga se aborta si el archivo supera 500 MB.
 
 ### P3 — expansión técnica
 
@@ -483,7 +544,9 @@ lista de dominios permitidos. No debe convertirse en escaneo ofensivo automátic
 Activar únicamente cuando el inventario encuentre EC2, ECR o Lambda. Mostrar cobertura,
 hallazgos y costo estimado antes de activar tipos de escaneo adicionales.
 
-#### 11.11 Mapeo de marcos
+#### 11.11 Mapeo de marcos (implementado el mapeo ligero)
+
+Estado: implementado el mapeo ligero (`backend/src/findingFramework.ts`).
 
 - código y web: OWASP Top 10;
 - cuenta AWS: FSBP y mapeo ligero a CIS;
@@ -505,15 +568,20 @@ evaluaciones y costo sin aportar necesariamente valor.
 
 ## 12. Mejoras técnicas identificadas
 
-- unir evaluaciones AWS y código en una evaluación `full` coordinada;
-- paginar todos los hallazgos V2, no solo la primera página;
-- distinguir hallazgos de cobertura opcional de vulnerabilidades o incumplimientos;
+- ~~unir evaluaciones AWS y código en una evaluación `full` coordinada~~ (implementado:
+  `POST .../assessments/full` y `backend/src/fullAssessment.ts`);
+- ~~paginar todos los hallazgos V2, no solo la primera página~~ (implementado:
+  paginación por `NextToken` con tope de seguridad de 1000 hallazgos);
+- ~~distinguir hallazgos de cobertura opcional de vulnerabilidades o incumplimientos~~
+  (implementado: categoría `coverage` excluida del puntaje);
 - mostrar estado y vencimiento de pruebas en la UI;
 - añadir estado explícito de Inspector mediante `BatchGetAccountStatus`;
-- almacenar una versión de metodología para que comparaciones futuras sean reproducibles;
+- ~~almacenar una versión de metodología para que comparaciones futuras sean
+  reproducibles~~ (implementado: `methodology_version` en `security_assessments`);
 - añadir pruebas de integración con respuestas AWS simuladas;
 - dividir el bundle principal del frontend, actualmente superior a 500 kB minificado;
-- evitar que una fuente temporalmente caída cambie artificialmente el puntaje;
+- ~~evitar que una fuente temporalmente caída cambie artificialmente el puntaje~~
+  (implementado: aplicabilidad de controles de cobertura);
 - definir retención y eliminación de informes y evidencias por cliente.
 
 ## 13. Validaciones realizadas
@@ -525,7 +593,8 @@ evaluaciones y costo sin aportar necesariamente valor.
 - CloudOps normaliza esos hallazgos;
 - Config devuelve tres recorders internos;
 - Inspector devuelve cero cobertura y ningún error, permaneciendo desactivado;
-- backend: 13 pruebas aprobadas;
+- backend: 15 pruebas aprobadas;
+- frontend: 8 pruebas aprobadas;
 - backend: compilación TypeScript aprobada;
 - frontend: compilación de producción aprobada;
 - frontend: lint aprobado.
@@ -535,30 +604,36 @@ evaluaciones y costo sin aportar necesariamente valor.
 | Archivo | Responsabilidad |
 | --- | --- |
 | `backend/src/aws.ts` | clientes AWS, rol, Security Hub V2, Config e Inspector |
-| `backend/src/securityAssessment.ts` | normalización, puntaje y cobertura AWS |
+| `backend/src/securityAssessment.ts` | normalización, deduplicación, puntaje y cobertura AWS |
 | `backend/src/zipSecurityScanner.ts` | lectura segura de ZIP y OSV |
+| `backend/src/findingFingerprint.ts` | huella estable y deduplicación |
+| `backend/src/findingFramework.ts` | mapeo OWASP/CIS-FSBP y aplicabilidad |
+| `backend/src/fullAssessment.ts` | fusión de evaluaciones AWS + código |
+| `backend/src/scheduler.ts` | evaluaciones programadas, reintentos y alertas |
+| `backend/src/repository.ts` | descarga de repositorios GitHub/GitLab |
 | `backend/src/server.ts` | API, persistencia y ejecución de evaluaciones |
 | `frontend/src/pages/Security.tsx` | postura en vivo y estándar activo |
 | `frontend/src/pages/Projects.tsx` | portafolio |
-| `frontend/src/pages/ProjectDetail.tsx` | evaluaciones, ZIP, historial y hallazgos |
+| `frontend/src/pages/ProjectDetail.tsx` | evaluaciones, comparación, ciclo de vida, programaciones y repositorio |
+| `frontend/src/components/reports/SecurityReportDocument.tsx` | informe imprimible |
+| `frontend/src/components/reports/SecurityReportModal.tsx` | modal del informe de seguridad |
+| `frontend/src/lib/print.ts` | impresión del informe |
 | `aws/cloudops-audit-policy.json` | permisos de solo lectura del rol |
 | `docs/AWS_AUDIT_ROLE.md` | autenticación por rol |
 | `docs/SECURITY_HUB_TRIAL.md` | activación y baja de Security Hub |
 
 ## 15. Próxima secuencia recomendada
 
-1. Identificar y retirar las access keys root.
-2. Decidir sobre MFA físico de root, bloqueo público de SSM y CloudTrail multirregión.
-3. Añadir protección de costos.
-4. Implementar deduplicación y aplicabilidad de controles.
-5. Implementar comparación entre evaluaciones.
-6. Implementar ciclo de vida de hallazgos.
-7. Generar el informe PDF.
-8. Programar evaluaciones y alertas.
-9. Integrar repositorios Git.
-10. Activar Inspector únicamente cuando existan recursos compatibles.
-11. Añadir análisis dinámico autorizado.
-12. Incorporar OWASP/CIS de forma ligera y luego controles multicliente/multirregión.
+1. Regenerar la línea base con deduplicación y aplicabilidad y revisar el puntaje.
+2. Identificar y retirar las access keys root.
+3. Decidir sobre MFA físico de root, bloqueo público de SSM y CloudTrail multirregión.
+4. Añadir protección de costos.
+5. Definir retención y eliminación de informes y evidencias por cliente.
+6. Mostrar en la UI el estado y vencimiento de las pruebas.
+7. Activar Inspector únicamente cuando existan recursos compatibles.
+8. Añadir análisis dinámico autorizado.
+9. Incorporar controles multicliente/multirregión.
 
-Esta secuencia prioriza evidencia repetible y valor para el cliente antes de ampliar el
-número de servicios o estándares habilitados.
+Ya entregados: deduplicación y aplicabilidad, comparación entre evaluaciones, ciclo de
+vida de hallazgos, informe PDF, evaluaciones programadas con alertas, integración de
+repositorios Git, mapeo ligero OWASP/CIS-FSBP y evaluación combinada AWS + código.

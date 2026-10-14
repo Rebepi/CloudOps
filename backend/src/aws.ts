@@ -59,6 +59,10 @@ function securityHubError(error: unknown): string {
 
 type SecurityHubFinding = { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string };
 
+const SECURITY_HUB_PAGE_SIZE = 50;
+const SECURITY_HUB_MAX_PAGES = 20;
+const SECURITY_HUB_MAX_FINDINGS = 1000;
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
@@ -345,22 +349,36 @@ export async function security(region: string) {
   }));
   let findings: SecurityHubFinding[] = [];
   let findingsError: string | null = null;
+  let findingsTruncated = false;
   let securityHub: { version: 'v2' | 'legacy' | 'unavailable'; enabled: boolean; arn?: string; subscribedAt?: string; features?: unknown } = {
     version: 'unavailable', enabled: false,
   };
   try {
     const client = new SecurityHubClient(clientConfig(region));
     const hub = await client.send(new DescribeSecurityHubV2Command({}));
-    const response = await client.send(new GetFindingsV2Command({ MaxResults: 50 }));
-    findings = (response.Findings ?? []).map(normalizeSecurityHubV2Finding);
+    let nextToken: string | undefined;
+    for (let page = 0; page < SECURITY_HUB_MAX_PAGES; page++) {
+      const response = await client.send(new GetFindingsV2Command({ MaxResults: SECURITY_HUB_PAGE_SIZE, NextToken: nextToken }));
+      findings.push(...(response.Findings ?? []).map(normalizeSecurityHubV2Finding));
+      nextToken = response.NextToken;
+      if (!nextToken || findings.length >= SECURITY_HUB_MAX_FINDINGS) break;
+    }
+    findingsTruncated = Boolean(nextToken);
     securityHub = { version: 'v2', enabled: true, arn: hub.HubV2Arn, subscribedAt: hub.SubscribedAt, features: hub.Features };
   } catch (v2Error) {
     try {
-      const response = await new SecurityHubClient(clientConfig(region)).send(new GetFindingsCommand({ MaxResults: 50 }));
-      findings = (response.Findings ?? []).map((f) => ({
-        id: f.Id, title: f.Title, severity: f.Severity?.Label, status: f.Workflow?.Status,
-        resource: f.Resources?.[0]?.Id, description: f.Description,
-      }));
+      const client = new SecurityHubClient(clientConfig(region));
+      let nextToken: string | undefined;
+      for (let page = 0; page < SECURITY_HUB_MAX_PAGES; page++) {
+        const response = await client.send(new GetFindingsCommand({ MaxResults: SECURITY_HUB_PAGE_SIZE, NextToken: nextToken }));
+        findings.push(...(response.Findings ?? []).map((f) => ({
+          id: f.Id, title: f.Title, severity: f.Severity?.Label, status: f.Workflow?.Status,
+          resource: f.Resources?.[0]?.Id, description: f.Description,
+        })));
+        nextToken = response.NextToken;
+        if (!nextToken || findings.length >= SECURITY_HUB_MAX_FINDINGS) break;
+      }
+      findingsTruncated = Boolean(nextToken);
       securityHub = { version: 'legacy', enabled: true };
     } catch {
       findingsError = securityHubError(v2Error);
@@ -395,7 +413,7 @@ export async function security(region: string) {
     accountSummary: summary.SummaryMap ?? {}, identities,
     roles: mappedRoles,
     trails: trailStatuses,
-    findings, findingsError, securityHub, standards, standardsError, truncated: Boolean(users.IsTruncated || roles.IsTruncated),
+    findings, findingsError, findingsTruncated, securityHub, standards, standardsError, truncated: Boolean(users.IsTruncated || roles.IsTruncated),
     config: configResult.status === 'fulfilled' ? configResult.value : null,
     configError: configResult.status === 'rejected' ? awsError(configResult.reason) : null,
     inspector: inspectorResult.status === 'fulfilled' ? inspectorResult.value : null,

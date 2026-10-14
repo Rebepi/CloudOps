@@ -1,3 +1,6 @@
+import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
+import { frameworkFor, isApplicableForScore } from './findingFramework.js';
+
 export type AwsSecuritySnapshot = {
   accountSummary: Record<string, number>;
   identities: { name?: string; arn?: string; mfa: boolean }[];
@@ -5,6 +8,7 @@ export type AwsSecuritySnapshot = {
   trails: { name?: string; arn?: string; isLogging?: boolean | null }[];
   findings: { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string }[];
   findingsError: string | null;
+  findingsTruncated?: boolean;
   config: {
     recorders: { arn?: string; name?: string; servicePrincipal?: string; recordingScope?: string; recording: boolean; lastStatus?: string; lastErrorCode?: string; lastStatusChangeTime?: string }[];
     rules: { name?: string; complianceType?: string; nonCompliantResources: number; capExceeded: boolean }[];
@@ -23,6 +27,8 @@ export type AwsSecuritySnapshot = {
 
 export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 
+export type FindingLifecycle = 'open' | 'in_progress' | 'resolved' | 'false_positive' | 'risk_accepted';
+
 export type NormalizedFinding = {
   externalId: string;
   source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector';
@@ -30,10 +36,12 @@ export type NormalizedFinding = {
   title: string;
   description: string;
   severity: FindingSeverity;
-  status: 'open';
+  status: FindingLifecycle;
   resource: string | null;
   recommendation: string;
   evidence: Record<string, unknown>;
+  fingerprint?: string;
+  framework?: string | null;
 };
 
 const severityPenalty: Record<FindingSeverity, number> = {
@@ -177,11 +185,27 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
     }
   }
 
-  const counts = findings.reduce<Record<FindingSeverity, number>>((acc, finding) => {
+  const withMetadata = findings.map((finding) => ({
+    ...finding,
+    fingerprint: computeFingerprint(finding),
+    framework: frameworkFor(finding.source, finding.category),
+  }));
+  const deduplicated = deduplicateByFingerprint(withMetadata);
+
+  const counts = deduplicated.reduce<Record<FindingSeverity, number>>((acc, finding) => {
     acc[finding.severity] += 1;
     return acc;
   }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
-  const score = Math.max(0, 100 - findings.reduce((total, finding) => total + severityPenalty[finding.severity], 0));
+  const rawSum = deduplicated.reduce((total, finding) => total + (isApplicableForScore(finding.category) ? severityPenalty[finding.severity] : 0), 0);
+  let score: number;
+  if (rawSum <= 50) {
+    score = Math.max(0, 100 - rawSum);
+  } else {
+    const excess = rawSum - 50;
+    const decayed = 50 / (1 + (excess / 180));
+    score = Math.max(5, Math.round(decayed));
+  }
+  const excludedFromScore = deduplicated.filter((finding) => !isApplicableForScore(finding.category)).length;
   const coverage = Math.round((observedControls / totalControls) * 100);
 
   return {
@@ -192,10 +216,13 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       counts,
       observedControls,
       totalControls,
+      deduplicatedFindings: findings.length - deduplicated.length,
+      excludedFromScore,
       users: snapshot.identities.length,
       roles: snapshot.roles.length,
       securityHubAvailable: !snapshot.findingsError,
       securityHubError: snapshot.findingsError,
+      securityHubTruncated: Boolean(snapshot.findingsTruncated),
       configAvailable: !snapshot.configError && Boolean(snapshot.config),
       configError: snapshot.configError,
       configRecorders: snapshot.config?.recorders.length ?? 0,
@@ -205,7 +232,9 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       inspectorError: snapshot.inspectorError,
       inspectorCoveredResources: snapshot.inspector?.coverage.length ?? 0,
       inspectorFindings: snapshot.inspector?.findings.length ?? 0,
+      methodology: 'Controles propios de CloudOps, Security Hub V2/CSPM, AWS Config e Inspector; puntaje con deduplicación y exclusión de hallazgos de cobertura opcional.',
+      methodologyVersion: '2026.10',
     },
-    findings,
+    findings: deduplicated,
   };
 }

@@ -13,6 +13,8 @@ export const config = {
   internalSsoSecret: (process.env.INTERNAL_SSO_SECRET ?? '').trim(),
   nexusBackendUrl: (process.env.NEXUS_BACKEND_URL ?? 'http://127.0.0.1:21401').replace(/\/+$/, ''),
   adminEmail: (process.env.ADMIN_EMAIL ?? 'renzobendezu51@gmail.com').trim().toLowerCase(),
+  securityAlertWebhook: (process.env.SECURITY_ALERT_WEBHOOK ?? '').trim(),
+  repositoryToken: (process.env.CLOUDOPS_REPOSITORY_TOKEN ?? '').trim(),
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL es obligatorio');

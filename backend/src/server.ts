@@ -1,7 +1,8 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { createHash, randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { createWriteStream } from 'node:fs';
 import { access, mkdir, open, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,10 @@ import { config } from './config.js';
 import * as cloud from './aws.js';
 import { evaluateAwsSecurity } from './securityAssessment.js';
 import { scanZipSecurity } from './zipSecurityScanner.js';
+import { mergeAssessments } from './fullAssessment.js';
+import { computeFingerprint } from './findingFingerprint.js';
+import { startScheduler, computeNextRun } from './scheduler.js';
+import { downloadRepositoryArchive, verifyRepository } from './repository.js';
 import {
   getUserByEmail,
   getUserById,
@@ -60,21 +65,168 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
       sa.score, sa.coverage, sa.confidence, sa.summary, sa.error_message AS "errorMessage",
       sa.started_at AS "startedAt", sa.completed_at AS "completedAt",
       artifact_id AS "artifactId", pa.original_name AS "artifactName", pa.sha256 AS "artifactSha256",
-      pa.size_bytes AS "artifactSizeBytes"
+      pa.size_bytes AS "artifactSizeBytes", pa.metadata AS "artifactMetadata"
     FROM security_assessments sa LEFT JOIN project_artifacts pa ON pa.id=sa.artifact_id
     WHERE sa.id=$1 AND sa.project_id=$2
   `, [assessmentId, projectId]);
   if (!assessment.rowCount) return null;
   const findings = await db.query(`
     SELECT id, assessment_id AS "assessmentId", external_id AS "externalId", source, category,
-      title, description, severity, status, resource, recommendation, evidence, created_at AS "createdAt"
+      title, description, severity, status, resource, recommendation, evidence, fingerprint, framework,
+      owner, due_date AS "dueDate", justification, approved_by AS "approvedBy",
+      created_at AS "createdAt", updated_at AS "updatedAt"
     FROM security_findings WHERE assessment_id=$1
     ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 4 ELSE 5 END, created_at
   `, [assessmentId]);
   return { ...assessment.rows[0], findings: findings.rows };
 }
 
-async function runZipAssessment(projectId: string, artifactId: string, assessmentId: string, temporaryPath: string) {
+async function loadComparison(projectId: string, assessmentId: string) {
+  const current = await db.query<{ assessmentType: string; score: number | null; coverage: number; startedAt: Date }>(`
+    SELECT assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt"
+    FROM security_assessments WHERE id=$1 AND project_id=$2 AND status='completed'
+  `, [assessmentId, projectId]);
+  if (!current.rowCount) return null;
+  const assessment = current.rows[0]!;
+  const previous = await db.query<{ id: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string }>(`
+    SELECT id, score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion"
+    FROM security_assessments
+    WHERE project_id=$1 AND assessment_type=$2 AND status='completed' AND started_at < $3
+    ORDER BY started_at DESC LIMIT 1
+  `, [projectId, assessment.assessmentType, assessment.startedAt]);
+  const previousRow = previous.rows[0] ?? null;
+  const findingsOf = async (id: string) => (await db.query(`
+    SELECT id, fingerprint, external_id AS "externalId", source, category, title, severity, status, resource, framework
+    FROM security_findings WHERE assessment_id=$1
+  `, [id])).rows;
+  const currentFindings = await findingsOf(assessmentId);
+  const previousFindings = previousRow ? await findingsOf(previousRow.id) : [];
+  const previousMap = new Map(previousFindings.map((finding) => [finding.fingerprint, finding]));
+  const currentMap = new Map(currentFindings.map((finding) => [finding.fingerprint, finding]));
+  const newFindings = currentFindings.filter((finding) => !previousMap.has(finding.fingerprint));
+  const resolvedFindings = previousFindings.filter((finding) => !currentMap.has(finding.fingerprint));
+  const recurring = currentFindings.filter((finding) => previousMap.has(finding.fingerprint));
+  const severityChanged = recurring
+    .filter((finding) => previousMap.get(finding.fingerprint)!.severity !== finding.severity)
+    .map((finding) => ({ ...finding, previousSeverity: previousMap.get(finding.fingerprint)!.severity, currentSeverity: finding.severity }));
+  return {
+    assessmentType: assessment.assessmentType,
+    current: { id: assessmentId, score: assessment.score, coverage: assessment.coverage },
+    previous: previousRow ? { id: previousRow.id, score: previousRow.score, coverage: previousRow.coverage, startedAt: previousRow.startedAt, methodologyVersion: previousRow.methodologyVersion } : null,
+    summary: {
+      newCount: newFindings.length,
+      resolvedCount: resolvedFindings.length,
+      recurringCount: recurring.length,
+      severityChangedCount: severityChanged.length,
+      scoreDelta: previousRow ? (assessment.score ?? 0) - (previousRow.score ?? 0) : null,
+      coverageDelta: previousRow ? assessment.coverage - previousRow.coverage : null,
+      comparable: Boolean(previousRow),
+    },
+    newFindings,
+    resolvedFindings,
+    recurring,
+    severityChanged,
+  };
+}
+
+type PersistedFinding = {
+  externalId?: string | null;
+  source: string;
+  category: string;
+  title: string;
+  description: string;
+  severity: string;
+  status?: string;
+  resource?: string | null;
+  recommendation: string;
+  evidence: Record<string, unknown>;
+  fingerprint?: string | null;
+  framework?: string | null;
+};
+
+async function previousLifecycleByFingerprint(projectId: string, assessmentType: string, excludeAssessmentId: string) {
+  const result = await db.query<{ fingerprint: string; status: string; owner: string | null; dueDate: string | null; justification: string | null; approvedBy: string | null; severity: string; firstSeenAssessmentId: string | null }>(`
+    SELECT sf.fingerprint, sf.status, sf.owner, sf.due_date AS "dueDate", sf.justification,
+      sf.approved_by AS "approvedBy", sf.severity, sf.first_seen_assessment_id AS "firstSeenAssessmentId"
+    FROM security_findings sf JOIN security_assessments sa ON sa.id=sf.assessment_id
+    WHERE sa.project_id=$1 AND sa.assessment_type=$2 AND sa.status='completed' AND sa.id<>$3 AND sf.fingerprint IS NOT NULL
+    ORDER BY sa.started_at DESC
+  `, [projectId, assessmentType, excludeAssessmentId]);
+  const map = new Map<string, (typeof result.rows)[number]>();
+  for (const row of result.rows) if (!map.has(row.fingerprint)) map.set(row.fingerprint, row);
+  return map;
+}
+
+async function insertFindings(client: PoolClient, projectId: string, assessmentId: string, assessmentType: string, findings: PersistedFinding[]) {
+  const previous = await previousLifecycleByFingerprint(projectId, assessmentType, assessmentId);
+  for (const finding of findings) {
+    const fingerprint = finding.fingerprint ?? computeFingerprint(finding);
+    const prior = previous.get(fingerprint);
+    let status = finding.status ?? 'open';
+    let owner: string | null = null;
+    let dueDate: string | null = null;
+    let justification: string | null = null;
+    let approvedBy: string | null = null;
+    let eventType = 'created';
+    let firstSeen = assessmentId;
+    if (prior) {
+      owner = prior.owner;
+      dueDate = prior.dueDate;
+      justification = prior.justification;
+      approvedBy = prior.approvedBy;
+      firstSeen = prior.firstSeenAssessmentId ?? assessmentId;
+      if (prior.status === 'false_positive' || prior.status === 'risk_accepted') {
+        status = prior.status;
+        eventType = prior.severity !== finding.severity ? 'severity_changed' : 'recurring';
+      } else if (prior.status === 'resolved') {
+        status = 'open';
+        eventType = 'reopened';
+      } else {
+        status = prior.status || 'open';
+        eventType = 'recurring';
+      }
+    }
+    const findingId = randomUUID();
+    await client.query(`
+      INSERT INTO security_findings(id,assessment_id,external_id,source,category,title,description,severity,status,resource,recommendation,evidence,fingerprint,framework,owner,due_date,justification,approved_by,first_seen_assessment_id,last_seen_assessment_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+    `, [findingId, assessmentId, finding.externalId ?? null, finding.source, finding.category, finding.title, finding.description,
+      finding.severity, status, finding.resource ?? null, finding.recommendation, JSON.stringify(finding.evidence),
+      fingerprint, finding.framework ?? null, owner, dueDate, justification, approvedBy, firstSeen, assessmentId]);
+    await client.query(`
+      INSERT INTO security_finding_events(id,finding_id,event_type,from_status,to_status,actor,justification,metadata)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+    `, [randomUUID(), findingId, eventType, prior?.status ?? null, status, 'system', justification,
+      JSON.stringify({ severity: finding.severity, severityChanged: Boolean(prior && prior.severity !== finding.severity) })]);
+  }
+}
+
+async function runAwsAssessment(projectId: string, region: string) {
+  await cloud.assertAssessmentConnection();
+  const assessmentId = randomUUID();
+  await db.query(`INSERT INTO security_assessments(id,project_id,assessment_type,status,region) VALUES($1,$2,'aws-account','running',$3)`, [assessmentId, projectId, region]);
+  try {
+    const snapshot = await cloud.security(region);
+    const evaluation = evaluateAwsSecurity(snapshot);
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await insertFindings(client, projectId, assessmentId, 'aws-account', evaluation.findings);
+      await client.query(`
+        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now() WHERE id=$1
+      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+    return assessmentId;
+  } catch (error) {
+    const message = cloud.awsError(error);
+    await db.query(`UPDATE security_assessments SET status='failed',error_message=$2,completed_at=now() WHERE id=$1`, [assessmentId, message]);
+    throw Object.assign(new Error(`No se pudo completar la evaluación AWS: ${message}`), { statusCode: 502 });
+  }
+}
+
+async function runZipAssessment(projectId: string, artifactId: string, assessmentId: string, temporaryPath: string, sourceMode: 'zip' | 'repository' = 'zip') {
   try {
     await db.query("UPDATE security_assessments SET status='running' WHERE id=$1", [assessmentId]);
     await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
@@ -82,19 +234,13 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
     const client = await db.connect();
     try {
       await client.query('BEGIN');
-      for (const item of evaluation.findings) {
-        await client.query(`
-          INSERT INTO security_findings(id,assessment_id,external_id,source,category,title,description,severity,status,resource,recommendation,evidence)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        `, [randomUUID(), assessmentId, item.externalId, item.source, item.category, item.title, item.description,
-          item.severity, item.status, item.resource, item.recommendation, JSON.stringify(item.evidence)]);
-      }
+      await insertFindings(client, projectId, assessmentId, 'code', evaluation.findings);
       await client.query(`
-        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,completed_at=now()
+        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now()
         WHERE id=$1
-      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary)]);
+      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
       await client.query(`
-        UPDATE project_artifacts SET status='completed',entry_count=$2,uncompressed_bytes=$3,metadata=$4,scanned_at=now()
+        UPDATE project_artifacts SET status='completed',entry_count=$2,uncompressed_bytes=$3,metadata=metadata || $4,scanned_at=now()
         WHERE id=$1
       `, [artifactId, evaluation.summary.entryCount, evaluation.summary.uncompressedBytes, JSON.stringify({
         filesAnalyzed: evaluation.summary.filesAnalyzed,
@@ -102,7 +248,7 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
         extensions: evaluation.summary.extensions,
         retained: false,
       })]);
-      await client.query("UPDATE projects SET source_mode='zip',updated_at=now() WHERE id=$1", [projectId]);
+      await client.query("UPDATE projects SET source_mode=$2,updated_at=now() WHERE id=$1", [projectId, sourceMode]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -122,17 +268,85 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
   }
 }
 
+async function runFullAssessment(projectId: string, artifactId: string, assessmentId: string, temporaryPath: string, region: string) {
+  try {
+    await cloud.assertAssessmentConnection();
+    await db.query("UPDATE security_assessments SET status='running' WHERE id=$1", [assessmentId]);
+    await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
+    const [snapshot, codeEvaluation] = await Promise.all([
+      cloud.security(region),
+      scanZipSecurity(temporaryPath),
+    ]);
+    const awsEvaluation = evaluateAwsSecurity(snapshot);
+    const evaluation = mergeAssessments(awsEvaluation, codeEvaluation);
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await insertFindings(client, projectId, assessmentId, 'full', evaluation.findings);
+      await client.query(`
+        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now()
+        WHERE id=$1
+      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
+      await client.query(`
+        UPDATE project_artifacts SET status='completed',entry_count=$2,uncompressed_bytes=$3,metadata=metadata || $4,scanned_at=now()
+        WHERE id=$1
+      `, [artifactId, codeEvaluation.summary.entryCount, codeEvaluation.summary.uncompressedBytes, JSON.stringify({
+        filesAnalyzed: codeEvaluation.summary.filesAnalyzed,
+        dependencyCount: codeEvaluation.summary.dependencyCount,
+        extensions: codeEvaluation.summary.extensions,
+        retained: false,
+      })]);
+      await client.query("UPDATE projects SET source_mode='full',updated_at=now() WHERE id=$1", [projectId]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await Promise.all([
+      db.query("UPDATE security_assessments SET status='failed',error_message=$2,completed_at=now() WHERE id=$1", [assessmentId, message]),
+      db.query("UPDATE project_artifacts SET status='failed',metadata=jsonb_build_object('error',$2,'retained',false),scanned_at=now() WHERE id=$1", [artifactId, message]),
+    ]);
+    app.log.error({ assessmentId, artifactId, error: message }, 'Full security assessment failed');
+  } finally {
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+}
+
+async function runRepositoryAssessment(projectId: string, artifactId: string, assessmentId: string, source: { provider: string; owner: string; name: string; ref: string | null }, temporaryPath: string) {
+  try {
+    const result = await downloadRepositoryArchive(source, config.repositoryToken, temporaryPath);
+    await db.query(`UPDATE project_artifacts SET sha256=$2, size_bytes=$3, metadata=metadata || $4 WHERE id=$1`,
+      [artifactId, result.sha256, result.bytes, JSON.stringify({ provider: source.provider, owner: source.owner, name: source.name, ref: result.resolvedRef, commit: result.commit, retained: false })]);
+    await runZipAssessment(projectId, artifactId, assessmentId, temporaryPath, 'repository');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await Promise.all([
+      db.query("UPDATE security_assessments SET status='failed',error_message=$2,completed_at=now() WHERE id=$1", [assessmentId, message]),
+      db.query("UPDATE project_artifacts SET status='failed',metadata=metadata || jsonb_build_object('error',$2,'retained',false),scanned_at=now() WHERE id=$1", [artifactId, message]),
+    ]);
+    app.log.error({ assessmentId, artifactId, error: message }, 'Repository security assessment failed');
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+}
+
 async function recoverZipAssessments() {
-  const pending = await db.query<{ id: string; project_id: string; artifact_id: string }>(`
-    SELECT id,project_id,artifact_id FROM security_assessments
-    WHERE assessment_type='code' AND status IN ('pending','running') AND artifact_id IS NOT NULL
+  const pending = await db.query<{ id: string; project_id: string; artifact_id: string; assessment_type: string; region: string }>(`
+    SELECT id,project_id,artifact_id,assessment_type,region FROM security_assessments
+    WHERE assessment_type IN ('code','full') AND status IN ('pending','running') AND artifact_id IS NOT NULL
   `);
   const uploadDirectory = join(tmpdir(), 'cloudops-security-scans');
   for (const assessment of pending.rows) {
     const temporaryPath = join(uploadDirectory, `${assessment.artifact_id}.zip`);
     try {
       await access(temporaryPath);
-      setImmediate(() => { void runZipAssessment(assessment.project_id, assessment.artifact_id, assessment.id, temporaryPath); });
+      setImmediate(() => {
+        if (assessment.assessment_type === 'full') void runFullAssessment(assessment.project_id, assessment.artifact_id, assessment.id, temporaryPath, assessment.region);
+        else void runZipAssessment(assessment.project_id, assessment.artifact_id, assessment.id, temporaryPath);
+      });
     } catch {
       const message = 'El proceso se interrumpió y el archivo ZIP temporal ya no está disponible; vuelve a cargarlo.';
       await Promise.all([
@@ -357,13 +571,14 @@ app.get('/api/v1/projects', async () => {
     SELECT p.id, p.name, p.client_name AS "clientName", p.description,
       p.application_type AS "applicationType", p.environment, p.region, p.status,
       p.technology_stack AS "technologyStack", p.source_mode AS "sourceMode",
+      p.repo_provider AS "repoProvider", p.repo_owner AS "repoOwner", p.repo_name AS "repoName", p.repo_default_branch AS "repoDefaultBranch",
       p.created_at AS "createdAt", p.updated_at AS "updatedAt",
       latest.id AS "latestAssessmentId", latest.score AS "latestScore",
       latest.coverage AS "latestCoverage", latest.status AS "latestAssessmentStatus",
       latest.completed_at AS "latestAssessmentAt",
       (SELECT count(*)::int FROM security_assessments sa WHERE sa.project_id=p.id) AS "assessmentCount",
       (SELECT count(*)::int FROM security_findings sf JOIN security_assessments sa ON sa.id=sf.assessment_id
-        WHERE sa.project_id=p.id AND sf.severity IN ('CRITICAL','HIGH') AND sf.status='open') AS "criticalHighFindings"
+        WHERE sa.project_id=p.id AND sf.severity IN ('CRITICAL','HIGH') AND sf.status IN ('open','in_progress')) AS "criticalHighFindings"
     FROM projects p
     LEFT JOIN LATERAL (
       SELECT id, score, coverage, status, completed_at
@@ -374,24 +589,28 @@ app.get('/api/v1/projects', async () => {
   return { data: result.rows };
 });
 
-app.post<{ Body: { name: string; clientName?: string; description?: string; applicationType: string; environment: string; region: string; technologyStack?: string[]; sourceMode?: string } }>('/api/v1/projects', {
+app.post<{ Body: { name: string; clientName?: string; description?: string; applicationType: string; environment: string; region: string; technologyStack?: string[]; sourceMode?: string; repoProvider?: string; repoOwner?: string; repoName?: string; repoDefaultBranch?: string } }>('/api/v1/projects', {
   schema: { body: { type: 'object', required: ['name', 'applicationType', 'environment', 'region'], additionalProperties: false, properties: {
     name: { type: 'string', minLength: 3, maxLength: 120 }, clientName: { type: 'string', maxLength: 120 },
     description: { type: 'string', maxLength: 2000 }, applicationType: { enum: ['Web', 'Móvil', 'API', 'Analítica', 'Interna'] },
     environment: { enum: ['Producción', 'Staging', 'Sandbox'] }, region: { type: 'string', pattern: '^[a-z]{2}(?:-gov)?-[a-z]+-\\d$' },
     technologyStack: { type: 'array', maxItems: 30, items: { type: 'string', minLength: 1, maxLength: 60 } },
     sourceMode: { enum: ['none', 'zip', 'repository', 'aws'] },
+    repoProvider: { enum: ['github', 'gitlab'] }, repoOwner: { type: 'string', maxLength: 100 },
+    repoName: { type: 'string', maxLength: 120 }, repoDefaultBranch: { type: 'string', maxLength: 120 },
   } } },
 }, async ({ body }, reply) => {
   const id = randomUUID();
   const result = await db.query(`
-    INSERT INTO projects(id,name,client_name,description,application_type,environment,region,technology_stack,source_mode)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    INSERT INTO projects(id,name,client_name,description,application_type,environment,region,technology_stack,source_mode,repo_provider,repo_owner,repo_name,repo_default_branch)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     RETURNING id,name,client_name AS "clientName",description,application_type AS "applicationType",
       environment,region,status,technology_stack AS "technologyStack",source_mode AS "sourceMode",
+      repo_provider AS "repoProvider",repo_owner AS "repoOwner",repo_name AS "repoName",repo_default_branch AS "repoDefaultBranch",
       created_at AS "createdAt",updated_at AS "updatedAt"
   `, [id, body.name.trim(), body.clientName?.trim() || null, body.description?.trim() ?? '', body.applicationType,
-    body.environment, body.region, JSON.stringify(body.technologyStack ?? []), body.sourceMode ?? 'none']);
+    body.environment, body.region, JSON.stringify(body.technologyStack ?? []), body.sourceMode ?? 'none',
+    body.repoProvider ?? null, body.repoOwner ?? null, body.repoName ?? null, body.repoDefaultBranch ?? 'main']);
   reply.code(201);
   return { data: result.rows[0] };
 });
@@ -429,6 +648,7 @@ app.get<{ Params: { id: string } }>('/api/v1/projects/:id', async ({ params }, r
   const result = await db.query(`
     SELECT p.id,p.name,p.client_name AS "clientName",p.description,p.application_type AS "applicationType",
       p.environment,p.region,p.status,p.technology_stack AS "technologyStack",p.source_mode AS "sourceMode",
+      p.repo_provider AS "repoProvider", p.repo_owner AS "repoOwner", p.repo_name AS "repoName", p.repo_default_branch AS "repoDefaultBranch",
       p.created_at AS "createdAt",p.updated_at AS "updatedAt",
       (SELECT count(*)::int FROM proposals WHERE project_id=p.id) AS "proposalCount",
       (SELECT count(*)::int FROM cost_items WHERE project_id=p.id) AS "costItemCount",
@@ -492,44 +712,188 @@ app.get<{ Params: { id: string; assessmentId: string } }>('/api/v1/projects/:id/
   return { data: assessment };
 });
 
+app.get<{ Params: { id: string; assessmentId: string } }>('/api/v1/projects/:id/security/assessments/:assessmentId/comparison', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.assessmentId)) return reply.code(400).send({ message: 'ID inválido' });
+  const comparison = await loadComparison(params.id, params.assessmentId);
+  if (!comparison) return reply.code(404).send({ message: 'Evaluación no encontrada o todavía no completada' });
+  return { data: comparison };
+});
+
+app.get<{ Params: { id: string; findingId: string } }>('/api/v1/projects/:id/security/findings/:findingId/events', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.findingId)) return reply.code(400).send({ message: 'ID inválido' });
+  const exists = await db.query(`
+    SELECT 1 FROM security_findings sf JOIN security_assessments sa ON sa.id=sf.assessment_id
+    WHERE sf.id=$1 AND sa.project_id=$2
+  `, [params.findingId, params.id]);
+  if (!exists.rowCount) return reply.code(404).send({ message: 'Hallazgo no encontrado' });
+  const events = await db.query(`
+    SELECT id, event_type AS "eventType", from_status AS "fromStatus", to_status AS "toStatus",
+      actor, comment, justification, metadata, created_at AS "createdAt"
+    FROM security_finding_events WHERE finding_id=$1 ORDER BY created_at DESC
+  `, [params.findingId]);
+  return { data: events.rows };
+});
+
+app.patch<{ Params: { id: string; findingId: string }; Body: { status?: string; owner?: string; dueDate?: string; justification?: string; comment?: string; approvedBy?: string; actor?: string } }>('/api/v1/projects/:id/security/findings/:findingId', {
+  schema: { body: { type: 'object', additionalProperties: false, properties: {
+    status: { enum: ['open', 'in_progress', 'resolved', 'false_positive', 'risk_accepted'] },
+    owner: { type: 'string', maxLength: 160 }, dueDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+    justification: { type: 'string', maxLength: 4000 }, comment: { type: 'string', maxLength: 4000 },
+    approvedBy: { type: 'string', maxLength: 160 }, actor: { type: 'string', maxLength: 160 },
+  } } },
+}, async ({ params, body }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.findingId)) return reply.code(400).send({ message: 'ID inválido' });
+  const current = await db.query(`
+    SELECT sf.id, sf.status, sf.owner, sf.due_date AS "dueDate", sf.justification, sf.approved_by AS "approvedBy"
+    FROM security_findings sf JOIN security_assessments sa ON sa.id=sf.assessment_id
+    WHERE sf.id=$1 AND sa.project_id=$2
+  `, [params.findingId, params.id]);
+  if (!current.rowCount) return reply.code(404).send({ message: 'Hallazgo no encontrado' });
+  const row = current.rows[0];
+  const status = body.status ?? row.status;
+  const owner = body.owner !== undefined ? (body.owner.trim() || null) : row.owner;
+  const dueDate = body.dueDate !== undefined ? body.dueDate : row.dueDate;
+  const justification = body.justification !== undefined ? (body.justification.trim() || null) : row.justification;
+  const approvedBy = body.approvedBy !== undefined ? (body.approvedBy.trim() || null) : row.approvedBy;
+  await db.query(`
+    UPDATE security_findings SET status=$2, owner=$3, due_date=$4, justification=$5, approved_by=$6, updated_at=now() WHERE id=$1
+  `, [params.findingId, status, owner ?? null, dueDate ?? null, justification ?? null, approvedBy ?? null]);
+  let eventType = 'updated';
+  if (status !== row.status) {
+    eventType = status === 'false_positive' ? 'false_positive'
+      : status === 'risk_accepted' ? 'risk_accepted'
+      : status === 'resolved' ? 'resolved'
+      : row.status === 'resolved' && status === 'open' ? 'reopened'
+      : 'status_changed';
+  } else if (body.comment) eventType = 'commented';
+  else if (body.owner !== undefined && body.owner !== row.owner) eventType = 'assigned';
+  await db.query(`
+    INSERT INTO security_finding_events(id,finding_id,event_type,from_status,to_status,actor,comment,justification)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+  `, [randomUUID(), params.findingId, eventType, row.status, status, body.actor ?? null, body.comment ?? null, justification ?? null]);
+  const updated = await db.query(`
+    SELECT id, assessment_id AS "assessmentId", external_id AS "externalId", source, category,
+      title, description, severity, status, resource, recommendation, evidence, fingerprint, framework,
+      owner, due_date AS "dueDate", justification, approved_by AS "approvedBy",
+      created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM security_findings WHERE id=$1
+  `, [params.findingId]);
+  return { data: updated.rows[0] };
+});
+
+const CADENCES = ['daily', 'weekly', 'monthly'] as const;
+const NOTIFY_FLAGS = ['new_finding', 'severity_increase', 'coverage_drop', 'failure'] as const;
+
+app.get<{ Params: { id: string } }>('/api/v1/projects/:id/security/schedules', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
+  const result = await db.query(`
+    SELECT s.id, s.project_id AS "projectId", s.assessment_type AS "assessmentType", s.cadence, s.timezone,
+      s.next_run_at AS "nextRunAt", s.last_run_at AS "lastRunAt", s.enabled, s.notify_on AS "notifyOn",
+      s.notify_email AS "notifyEmail", s.created_at AS "createdAt", s.updated_at AS "updatedAt",
+      (SELECT json_agg(json_build_object('id', r.id, 'status', r.status, 'attempt', r.attempt,
+        'assessmentId', r.assessment_id, 'errorMessage', r.error_message,
+        'startedAt', r.started_at, 'completedAt', r.completed_at) ORDER BY r.started_at DESC)
+       FROM (SELECT * FROM assessment_runs WHERE schedule_id=s.id ORDER BY started_at DESC LIMIT 10) r) AS "runs"
+    FROM assessment_schedules s WHERE s.project_id=$1 ORDER BY s.created_at DESC
+  `, [params.id]);
+  return { data: result.rows };
+});
+
+app.post<{ Params: { id: string }; Body: { assessmentType?: string; cadence: string; timezone?: string; notifyOn?: string[]; notifyEmail?: string } }>('/api/v1/projects/:id/security/schedules', {
+  schema: { body: { type: 'object', required: ['cadence'], additionalProperties: false, properties: {
+    assessmentType: { enum: ['aws-account'] }, cadence: { enum: CADENCES as unknown as string[] },
+    timezone: { type: 'string', maxLength: 60 }, notifyOn: { type: 'array', items: { enum: NOTIFY_FLAGS as unknown as string[] } },
+    notifyEmail: { type: 'string', maxLength: 160 },
+  } } },
+}, async ({ params, body }, reply) => {
+  if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
+  const project = await db.query('SELECT id FROM projects WHERE id=$1', [params.id]);
+  if (!project.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
+  const id = randomUUID();
+  const result = await db.query(`
+    INSERT INTO assessment_schedules(id,project_id,assessment_type,cadence,timezone,next_run_at,notify_on,notify_email)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+    RETURNING id, project_id AS "projectId", assessment_type AS "assessmentType", cadence, timezone,
+      next_run_at AS "nextRunAt", last_run_at AS "lastRunAt", enabled, notify_on AS "notifyOn", notify_email AS "notifyEmail"
+  `, [id, params.id, body.assessmentType ?? 'aws-account', body.cadence, body.timezone ?? 'America/Lima',
+    computeNextRun(new Date(), body.cadence, body.timezone ?? 'America/Lima'), body.notifyOn ?? [...NOTIFY_FLAGS], body.notifyEmail ?? null]);
+  reply.code(201);
+  return { data: result.rows[0] };
+});
+
+app.patch<{ Params: { id: string; scheduleId: string }; Body: { cadence?: string; timezone?: string; enabled?: boolean; notifyOn?: string[]; notifyEmail?: string } }>('/api/v1/projects/:id/security/schedules/:scheduleId', {
+  schema: { body: { type: 'object', additionalProperties: false, properties: {
+    cadence: { enum: CADENCES as unknown as string[] }, timezone: { type: 'string', maxLength: 60 }, enabled: { type: 'boolean' },
+    notifyOn: { type: 'array', items: { enum: NOTIFY_FLAGS as unknown as string[] } }, notifyEmail: { type: 'string', maxLength: 160 },
+  } } },
+}, async ({ params, body }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.scheduleId)) return reply.code(400).send({ message: 'ID inválido' });
+  const current = await db.query('SELECT * FROM assessment_schedules WHERE id=$1 AND project_id=$2', [params.scheduleId, params.id]);
+  if (!current.rowCount) return reply.code(404).send({ message: 'Programación no encontrada' });
+  const row = current.rows[0];
+  const cadence = body.cadence ?? row.cadence;
+  const timezone = body.timezone ?? row.timezone;
+  const nextRunAt = body.cadence || body.timezone ? computeNextRun(new Date(), cadence, timezone) : row.next_run_at;
+  const result = await db.query(`
+    UPDATE assessment_schedules SET cadence=$3, timezone=$4, enabled=$5, notify_on=$6, notify_email=$7, next_run_at=$8, updated_at=now()
+    WHERE id=$1 AND project_id=$2
+    RETURNING id, project_id AS "projectId", assessment_type AS "assessmentType", cadence, timezone,
+      next_run_at AS "nextRunAt", last_run_at AS "lastRunAt", enabled, notify_on AS "notifyOn", notify_email AS "notifyEmail"
+  `, [params.scheduleId, params.id, cadence, timezone, body.enabled ?? row.enabled,
+    body.notifyOn ?? row.notify_on, body.notifyEmail !== undefined ? body.notifyEmail : row.notify_email, nextRunAt]);
+  return { data: result.rows[0] };
+});
+
+app.delete<{ Params: { id: string; scheduleId: string } }>('/api/v1/projects/:id/security/schedules/:scheduleId', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.scheduleId)) return reply.code(400).send({ message: 'ID inválido' });
+  const result = await db.query('DELETE FROM assessment_schedules WHERE id=$1 AND project_id=$2', [params.scheduleId, params.id]);
+  return reply.code(result.rowCount ? 204 : 404).send();
+});
+
+app.post<{ Params: { id: string; scheduleId: string } }>('/api/v1/projects/:id/security/schedules/:scheduleId/run', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id) || !uuidPattern.test(params.scheduleId)) return reply.code(400).send({ message: 'ID inválido' });
+  const schedule = await db.query('SELECT * FROM assessment_schedules WHERE id=$1 AND project_id=$2', [params.scheduleId, params.id]);
+  if (!schedule.rowCount) return reply.code(404).send({ message: 'Programación no encontrada' });
+  const project = await db.query<{ region: string }>('SELECT region FROM projects WHERE id=$1', [params.id]);
+  if (!project.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
+  const runId = randomUUID();
+  await db.query(`INSERT INTO assessment_runs(id,schedule_id,status,attempt) VALUES($1,$2,'running',1)`, [runId, params.scheduleId]);
+  try {
+    const assessmentId = await runAwsAssessment(params.id, project.rows[0]!.region);
+    await db.query(`UPDATE assessment_runs SET status='completed',assessment_id=$2,completed_at=now() WHERE id=$1`, [runId, assessmentId]);
+    await db.query('UPDATE assessment_schedules SET last_run_at=now(),updated_at=now() WHERE id=$1', [params.scheduleId]);
+    const assessment = await loadSecurityAssessment(params.id, assessmentId);
+    reply.code(201);
+    return { data: { runId, assessment } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await db.query(`UPDATE assessment_runs SET status='failed',error_message=$2,completed_at=now() WHERE id=$1`, [runId, message]);
+    throw error;
+  }
+});
+
+app.get<{ Params: { id: string } }>('/api/v1/projects/:id/security/runs', async ({ params }, reply) => {
+  if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
+  const result = await db.query(`
+    SELECT r.id, r.schedule_id AS "scheduleId", r.assessment_id AS "assessmentId", r.status, r.attempt,
+      r.error_message AS "errorMessage", r.started_at AS "startedAt", r.completed_at AS "completedAt"
+    FROM assessment_runs r JOIN assessment_schedules s ON s.id=r.schedule_id
+    WHERE s.project_id=$1 ORDER BY r.started_at DESC LIMIT 50
+  `, [params.id]);
+  return { data: result.rows };
+});
+
 app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/aws', async ({ params }, reply) => {
   if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
   const project = await db.query<{ region: string }>('SELECT region FROM projects WHERE id=$1', [params.id]);
   if (!project.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
-  await cloud.assertAssessmentConnection();
-  const assessmentId = randomUUID();
-  const region = project.rows[0]!.region;
-  await db.query(`INSERT INTO security_assessments(id,project_id,assessment_type,status,region) VALUES($1,$2,'aws-account','running',$3)`, [assessmentId, params.id, region]);
-  try {
-    const snapshot = await cloud.security(region);
-    const evaluation = evaluateAwsSecurity(snapshot);
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-      for (const finding of evaluation.findings) {
-        await client.query(`
-          INSERT INTO security_findings(id,assessment_id,external_id,source,category,title,description,severity,status,resource,recommendation,evidence)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        `, [randomUUID(), assessmentId, finding.externalId, finding.source, finding.category, finding.title, finding.description,
-          finding.severity, finding.status, finding.resource, finding.recommendation, JSON.stringify(finding.evidence)]);
-      }
-      await client.query(`
-        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,completed_at=now() WHERE id=$1
-      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary)]);
-      await client.query('COMMIT');
-    } catch (error) { await client.query('ROLLBACK'); throw error; }
-    finally { client.release(); }
-    const assessment = await loadSecurityAssessment(params.id, assessmentId);
-    reply.code(201);
-    return { data: assessment };
-  } catch (error) {
-    const message = cloud.awsError(error);
-    await db.query(`UPDATE security_assessments SET status='failed',error_message=$2,completed_at=now() WHERE id=$1`, [assessmentId, message]);
-    throw Object.assign(new Error(`No se pudo completar la evaluación AWS: ${message}`), { statusCode: 502 });
-  }
+  const assessmentId = await runAwsAssessment(params.id, project.rows[0]!.region);
+  const assessment = await loadSecurityAssessment(params.id, assessmentId);
+  reply.code(201);
+  return { data: assessment };
 });
 
-app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/code', async (request, reply) => {
+async function startArchiveAssessment(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply, assessmentType: 'code' | 'full') {
   const { id } = request.params;
   if (!uuidPattern.test(id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
   const project = await db.query<{ region: string }>('SELECT region FROM projects WHERE id=$1', [id]);
@@ -577,8 +941,8 @@ app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/
       `, [artifactId, id, originalName, sha256, sizeBytes, JSON.stringify({ contentType: part.mimetype, retained: false })]);
       await client.query(`
         INSERT INTO security_assessments(id,project_id,assessment_type,status,region,artifact_id)
-        VALUES($1,$2,'code','pending',$3,$4)
-      `, [assessmentId, id, project.rows[0]!.region, artifactId]);
+        VALUES($1,$2,$3,'pending',$4,$5)
+      `, [assessmentId, id, assessmentType, project.rows[0]!.region, artifactId]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -586,12 +950,92 @@ app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/
     } finally {
       client.release();
     }
-    setImmediate(() => { void runZipAssessment(id, artifactId, assessmentId, temporaryPath); });
+    const region = project.rows[0]!.region;
+    setImmediate(() => {
+      if (assessmentType === 'full') void runFullAssessment(id, artifactId, assessmentId, temporaryPath, region);
+      else void runZipAssessment(id, artifactId, assessmentId, temporaryPath);
+    });
     return reply.code(202).send({ data: { assessmentId, artifactId, status: 'pending', sha256, sizeBytes, originalName } });
   } catch (error) {
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
   }
+}
+
+app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/code', (request, reply) => startArchiveAssessment(request, reply, 'code'));
+
+app.post<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments/full', (request, reply) => startArchiveAssessment(request, reply, 'full'));
+
+app.post<{ Params: { id: string }; Body: { provider: string; owner: string; name: string; defaultBranch?: string; tokenRef?: string } }>('/api/v1/projects/:id/repository', {
+  schema: { body: { type: 'object', required: ['provider', 'owner', 'name'], additionalProperties: false, properties: {
+    provider: { enum: ['github', 'gitlab'] }, owner: { type: 'string', minLength: 1, maxLength: 100 },
+    name: { type: 'string', minLength: 1, maxLength: 120 }, defaultBranch: { type: 'string', maxLength: 120 }, tokenRef: { type: 'string', maxLength: 160 },
+  } } },
+}, async ({ params, body }, reply) => {
+  if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
+  const result = await db.query(`
+    UPDATE projects SET repo_provider=$2, repo_owner=$3, repo_name=$4, repo_default_branch=$5, repo_token_ref=$6, updated_at=now()
+    WHERE id=$1
+    RETURNING id, repo_provider AS "repoProvider", repo_owner AS "repoOwner", repo_name AS "repoName",
+      repo_default_branch AS "repoDefaultBranch", repo_token_ref AS "repoTokenRef"
+  `, [params.id, body.provider, body.owner, body.name, body.defaultBranch ?? 'main', body.tokenRef ?? null]);
+  if (!result.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
+  return { data: result.rows[0] };
+});
+
+app.post<{ Body: { provider: string; owner: string; name: string; ref?: string } }>('/api/v1/repositories/verify', {
+  schema: { body: { type: 'object', required: ['provider', 'owner', 'name'], additionalProperties: false, properties: {
+    provider: { enum: ['github', 'gitlab'] }, owner: { type: 'string', minLength: 1, maxLength: 100 },
+    name: { type: 'string', minLength: 1, maxLength: 120 }, ref: { type: 'string', maxLength: 120 },
+  } } },
+}, async ({ body }, reply) => {
+  try {
+    const verified = await verifyRepository(body, config.repositoryToken);
+    return { data: verified };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.code(400).send({ message });
+  }
+});
+
+app.post<{ Params: { id: string }; Body: { ref?: string } }>('/api/v1/projects/:id/security/assessments/repository', async ({ params, body }, reply) => {
+  if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
+  const project = await db.query<{ repoProvider: string | null; repoOwner: string | null; repoName: string | null; repoDefaultBranch: string | null }>(`
+    SELECT repo_provider AS "repoProvider", repo_owner AS "repoOwner", repo_name AS "repoName", repo_default_branch AS "repoDefaultBranch"
+    FROM projects WHERE id=$1
+  `, [params.id]);
+  if (!project.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
+  const source = project.rows[0]!;
+  if (!source.repoProvider || !source.repoOwner || !source.repoName) {
+    return reply.code(400).send({ message: 'El proyecto no tiene un repositorio Git conectado.' });
+  }
+  if (source.repoProvider !== 'github' && source.repoProvider !== 'gitlab') return reply.code(400).send({ message: 'Proveedor de repositorio no admitido.' });
+  const ref = body.ref?.trim() || source.repoDefaultBranch || 'main';
+  const uploadDirectory = join(tmpdir(), 'cloudops-security-scans');
+  await mkdir(uploadDirectory, { recursive: true });
+  const artifactId = randomUUID();
+  const assessmentId = randomUUID();
+  const temporaryPath = join(uploadDirectory, `${artifactId}.zip`);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`
+      INSERT INTO project_artifacts(id,project_id,original_name,sha256,size_bytes,status,metadata)
+      VALUES($1,$2,$3,'',0,'pending',$4)
+    `, [artifactId, params.id, `${source.repoOwner}/${source.repoName}@${ref}`, JSON.stringify({ provider: source.repoProvider, owner: source.repoOwner, name: source.repoName, ref, retained: false })]);
+    await client.query(`
+      INSERT INTO security_assessments(id,project_id,assessment_type,status,region,artifact_id)
+      SELECT $1,$2,'code','pending',region,$3 FROM projects WHERE id=$2
+    `, [assessmentId, params.id, artifactId]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    client.release();
+    throw error;
+  }
+  client.release();
+  setImmediate(() => { void runRepositoryAssessment(params.id, artifactId, assessmentId, { provider: source.repoProvider!, owner: source.repoOwner!, name: source.repoName!, ref }, temporaryPath); });
+  return reply.code(202).send({ data: { assessmentId, artifactId, status: 'pending', provider: source.repoProvider, ref } });
 });
 
 app.get('/api/v1/proposals', async () => {
@@ -704,6 +1148,7 @@ app.post<{ Body: { proposals?: Record<string, unknown>[]; costItems?: Record<str
 async function main() {
   await db.query('SELECT 1');
   await recoverZipAssessments();
+  startScheduler(db, app.log, runAwsAssessment);
   await app.listen({ host: '127.0.0.1', port: config.port });
 }
 

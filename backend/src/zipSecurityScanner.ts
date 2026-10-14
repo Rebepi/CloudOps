@@ -1,5 +1,7 @@
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { createHash } from 'node:crypto';
+import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
+import { frameworkFor } from './findingFramework.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 
@@ -14,6 +16,8 @@ export type CodeFinding = {
   resource: string | null;
   recommendation: string;
   evidence: Record<string, unknown>;
+  fingerprint?: string;
+  framework?: string | null;
 };
 
 type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string };
@@ -331,7 +335,12 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       osvError = error instanceof Error ? error.message : String(error);
     }
   }
-  const findings = [...new Map(archive.findings.map((item) => [item.externalId, item])).values()];
+  const withMetadata = archive.findings.map((item) => ({
+    ...item,
+    fingerprint: computeFingerprint(item),
+    framework: frameworkFor(item.source, item.category),
+  }));
+  const findings = deduplicateByFingerprint(withMetadata);
   const counts = findings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
   const diminishingPenalty = (count: number, weight: number) => count ? weight * Math.log2(count + 1) : 0;
   const rawPenalty = diminishingPenalty(counts.CRITICAL, 22) + diminishingPenalty(counts.HIGH, 12)
@@ -348,6 +357,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
       osvAvailable, osvError, extensions: archive.extensions,
       methodology: 'Análisis estático por patrones, secretos, configuración/IaC e inventario de dependencias; no se ejecutó código.',
+      methodologyVersion: '2026.10',
     },
   };
 }

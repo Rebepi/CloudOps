@@ -12,7 +12,11 @@ export interface Proyecto {
   region: string;
   status: 'active' | 'paused' | 'archived';
   technologyStack: string[];
-  sourceMode: 'none' | 'zip' | 'repository' | 'aws';
+  sourceMode: 'none' | 'zip' | 'repository' | 'aws' | 'full';
+  repoProvider?: 'github' | 'gitlab' | null;
+  repoOwner?: string | null;
+  repoName?: string | null;
+  repoDefaultBranch?: string | null;
   createdAt: string;
   updatedAt: string;
   proposalCount?: number;
@@ -39,8 +43,80 @@ export interface HallazgoSeguridad {
   resource?: string | null;
   recommendation: string;
   evidence: Record<string, unknown>;
+  fingerprint?: string | null;
+  framework?: string | null;
+  owner?: string | null;
+  dueDate?: string | null;
+  justification?: string | null;
+  approvedBy?: string | null;
+  updatedAt?: string | null;
   createdAt: string;
 }
+
+export type EstadoHallazgo = 'open' | 'in_progress' | 'resolved' | 'false_positive' | 'risk_accepted';
+
+export interface EventoHallazgo {
+  id: string;
+  eventType: string;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  actor?: string | null;
+  comment?: string | null;
+  justification?: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface HallazgoComparado extends HallazgoSeguridad {
+  previousSeverity?: string;
+  currentSeverity?: string;
+}
+
+export interface ComparacionEvaluacion {
+  assessmentType: string;
+  current: { id: string; score: number | null; coverage: number };
+  previous: { id: string; score: number | null; coverage: number; startedAt: string; methodologyVersion: string } | null;
+  summary: {
+    newCount: number;
+    resolvedCount: number;
+    recurringCount: number;
+    severityChangedCount: number;
+    scoreDelta: number | null;
+    coverageDelta: number | null;
+    comparable: boolean;
+  };
+  newFindings: HallazgoSeguridad[];
+  resolvedFindings: HallazgoSeguridad[];
+  recurring: HallazgoSeguridad[];
+  severityChanged: HallazgoComparado[];
+}
+
+export interface ProgramacionEvaluacion {
+  id: string;
+  projectId: string;
+  assessmentType: string;
+  cadence: 'daily' | 'weekly' | 'monthly';
+  timezone: string;
+  nextRunAt: string;
+  lastRunAt?: string | null;
+  enabled: boolean;
+  notifyOn: string[];
+  notifyEmail?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  runs?: EjecucionProgramada[] | null;
+}
+
+export interface EjecucionProgramada {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  attempt: number;
+  assessmentId?: string | null;
+  errorMessage?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+}
+
 
 export interface EvaluacionSeguridad {
   id: string;
@@ -86,6 +162,7 @@ export interface EvaluacionSeguridad {
   artifactName?: string | null;
   artifactSha256?: string | null;
   artifactSizeBytes?: number | string | null;
+  artifactMetadata?: Record<string, unknown> | null;
 }
 
 export interface AwsConnectionStatus {
