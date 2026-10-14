@@ -12,6 +12,8 @@ import Infrastructure from './pages/Infrastructure';
 import Security from './pages/Security';
 import Network from './pages/Network';
 import Services from './pages/Services';
+import Projects from './pages/Projects';
+import ProjectDetail from './pages/ProjectDetail';
 
 export default function App() {
   return (
@@ -29,6 +31,8 @@ export default function App() {
               >
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/projects" element={<Projects />} />
+                <Route path="/projects/:projectId" element={<ProjectDetail />} />
                 <Route path="/planning" element={<Planning />} />
                 <Route path="/costs" element={<Costs />} />
                 <Route path="/infrastructure" element={<Infrastructure />} />

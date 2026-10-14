@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeCloudOpsAuditRoleOnly",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/CloudOpsAuditRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "REPLACE_WITH_UNIQUE_EXTERNAL_ID"
+        }
+      }
+    }
+  ]
+}

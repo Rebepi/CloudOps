@@ -1,4 +1,4 @@
-import { fromIni } from '@aws-sdk/credential-providers';
+import { fromIni, fromTemporaryCredentials } from '@aws-sdk/credential-providers';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { EC2Client, DescribeInstancesCommand, DescribeRegionsCommand, DescribeAvailabilityZonesCommand, DescribeVpcsCommand, DescribeSubnetsCommand, DescribeRouteTablesCommand, DescribeSecurityGroupsCommand, DescribeInternetGatewaysCommand, DescribeNatGatewaysCommand, DescribeFlowLogsCommand, DescribeVolumesCommand } from '@aws-sdk/client-ec2';
 import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
@@ -7,7 +7,9 @@ import { CloudWatchClient, GetMetricDataCommand, DescribeAlarmsCommand } from '@
 import { CostExplorerClient, GetCostAndUsageCommand, type ResultByTime } from '@aws-sdk/client-cost-explorer';
 import { CloudTrailClient, LookupEventsCommand, DescribeTrailsCommand, GetTrailStatusCommand } from '@aws-sdk/client-cloudtrail';
 import { IAMClient, ListUsersCommand, ListRolesCommand, GetAccountSummaryCommand, ListMFADevicesCommand, ListAttachedUserPoliciesCommand, ListUserPoliciesCommand, ListAttachedRolePoliciesCommand, ListRolePoliciesCommand, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
-import { SecurityHubClient, GetFindingsCommand } from '@aws-sdk/client-securityhub';
+import { SecurityHubClient, DescribeSecurityHubV2Command, GetEnabledStandardsCommand, GetFindingsCommand, GetFindingsV2Command } from '@aws-sdk/client-securityhub';
+import { ConfigServiceClient, DescribeConfigurationRecorderStatusCommand, DescribeComplianceByConfigRuleCommand, ListConfigurationRecordersCommand } from '@aws-sdk/client-config-service';
+import { Inspector2Client, BatchGetAccountStatusCommand, ListCoverageCommand, ListFindingsCommand as ListInspectorFindingsCommand } from '@aws-sdk/client-inspector2';
 import { PricingClient, GetProductsCommand } from '@aws-sdk/client-pricing';
 import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda';
 import { DynamoDBClient, ListTablesCommand } from '@aws-sdk/client-dynamodb';
@@ -20,7 +22,18 @@ import { BudgetsClient, DescribeBudgetsCommand } from '@aws-sdk/client-budgets';
 import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from '@aws-sdk/client-compute-optimizer';
 import { config } from './config.js';
 
-const credentials = fromIni({ profile: config.awsProfile });
+const sourceCredentials = fromIni({ profile: config.awsProfile });
+const credentials = config.awsRoleArn
+  ? fromTemporaryCredentials({
+      masterCredentials: sourceCredentials,
+      clientConfig: { region: config.region, maxAttempts: 2 },
+      params: {
+        RoleArn: config.awsRoleArn,
+        RoleSessionName: config.awsRoleSessionName,
+        ...(config.awsExternalId ? { ExternalId: config.awsExternalId } : {}),
+      },
+    })
+  : sourceCredentials;
 const clientConfig = (region: string) => ({ region, credentials, maxAttempts: 2 });
 const ec2 = (region: string) => new EC2Client(clientConfig(region));
 
@@ -37,9 +50,106 @@ export function awsError(error: unknown): string {
   return String(error);
 }
 
+function securityHubError(error: unknown): string {
+  if (error instanceof Error && error.name === 'SubscriptionRequiredException') {
+    return 'Security Hub no está disponible en el plan gratuito actual. Actualiza la cuenta al plan de pago y habilita Essentials en esta región.';
+  }
+  return awsError(error);
+}
+
+type SecurityHubFinding = { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string };
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+export function normalizeSecurityHubV2Finding(document: unknown): SecurityHubFinding {
+  const finding = document && typeof document === 'object' ? document as Record<string, unknown> : {};
+  const info = finding.finding_info && typeof finding.finding_info === 'object' ? finding.finding_info as Record<string, unknown> : {};
+  const severity = finding.severity && typeof finding.severity === 'object' ? finding.severity as Record<string, unknown> : {};
+  const status = finding.status && typeof finding.status === 'object' ? finding.status as Record<string, unknown> : {};
+  const resources = Array.isArray(finding.resources) ? finding.resources : [];
+  const resource = resources[0] && typeof resources[0] === 'object' ? resources[0] as Record<string, unknown> : {};
+  return {
+    id: stringValue(info.uid) ?? stringValue(finding.uid),
+    title: stringValue(info.title) ?? stringValue(finding.title),
+    description: stringValue(info.desc) ?? stringValue(finding.message),
+    severity: (stringValue(finding.severity) ?? stringValue(severity.label) ?? (typeof finding.severity_id === 'number' ? String(finding.severity_id) : undefined))?.toUpperCase(),
+    status: (stringValue(finding.status) ?? stringValue(status.name) ?? (typeof finding.status_id === 'number' ? String(finding.status_id) : undefined))?.toUpperCase(),
+    resource: stringValue(resource.uid) ?? stringValue(resource.name),
+  };
+}
+
 export async function identity() {
   const result = await aws.sts.send(new GetCallerIdentityCommand({}));
-  return { account: result.Account, arn: result.Arn, userId: result.UserId, profile: config.awsProfile };
+  return {
+    account: result.Account,
+    arn: result.Arn,
+    userId: result.UserId,
+    profile: config.awsProfile,
+    roleArn: config.awsRoleArn || null,
+  };
+}
+
+export type AwsPrincipalType = 'root' | 'assumed-role' | 'iam-role' | 'iam-user' | 'unknown';
+
+export function classifyAwsPrincipal(arn?: string): AwsPrincipalType {
+  if (!arn) return 'unknown';
+  if (/^arn:[^:]+:iam::\d{12}:root$/.test(arn)) return 'root';
+  if (/^arn:[^:]+:sts::\d{12}:assumed-role\//.test(arn)) return 'assumed-role';
+  if (/^arn:[^:]+:iam::\d{12}:role\//.test(arn)) return 'iam-role';
+  if (/^arn:[^:]+:iam::\d{12}:user\//.test(arn)) return 'iam-user';
+  return 'unknown';
+}
+
+export function connectionStatusFor(caller: Awaited<ReturnType<typeof identity>>) {
+  const principalType = classifyAwsPrincipal(caller.arn);
+  const rootBlocked = principalType === 'root' && !config.awsAllowRootAudit;
+  const roleConfigured = Boolean(config.awsRoleArn);
+  const roleActive = principalType === 'assumed-role' || principalType === 'iam-role';
+  const readyForAssessment = roleActive || (principalType === 'root' && config.awsAllowRootAudit);
+  const checks = [
+    { id: 'credentials', label: 'Credenciales AWS válidas', status: 'passed' as const, detail: caller.account ?? 'Cuenta no identificada' },
+    {
+      id: 'non-root',
+      label: 'Principal distinto de root',
+      status: principalType === 'root' ? 'failed' as const : 'passed' as const,
+      detail: principalType === 'root' ? 'La aplicación todavía usa credenciales root.' : `Principal ${principalType}`,
+    },
+    {
+      id: 'assume-role',
+      label: 'Rol IAM de auditoría asumido',
+      status: roleActive ? 'passed' as const : 'failed' as const,
+      detail: roleActive ? (config.awsRoleArn || caller.arn || 'Rol activo') : roleConfigured ? 'El rol está configurado, pero STS no devolvió una sesión de rol.' : 'Define AWS_ROLE_ARN para usar credenciales temporales.',
+    },
+  ];
+  return {
+    ...caller,
+    principalType,
+    roleConfigured,
+    roleActive,
+    externalIdConfigured: Boolean(config.awsExternalId),
+    rootOverrideEnabled: config.awsAllowRootAudit,
+    readyForAssessment,
+    checks,
+    recommendation: rootBlocked
+      ? 'Configura un perfil no root y AWS_ROLE_ARN. Las evaluaciones AWS quedan bloqueadas para evitar operar con root.'
+      : roleActive
+        ? 'La conexión usa credenciales temporales de un rol IAM y está lista para evaluar.'
+        : 'La identidad no es root, pero CloudOps exige una sesión de rol. Configura AWS_ROLE_ARN o un perfil de IAM Identity Center.',
+  };
+}
+
+export async function connectionStatus() {
+  return connectionStatusFor(await identity());
+}
+
+export async function assertAssessmentConnection() {
+  const status = await connectionStatus();
+  if (!status.readyForAssessment) {
+    throw Object.assign(new Error(status.recommendation), { statusCode: 403, code: 'AWS_ROOT_AUDIT_BLOCKED' });
+  }
+  return status;
 }
 
 export async function regions() {
@@ -233,23 +343,117 @@ export async function security(region: string) {
     return { name: r.RoleName, arn: r.Arn, createdAt: r.CreateDate?.toISOString(),
       policies: [...(attached.AttachedPolicies ?? []).map((p) => p.PolicyName ?? ''), ...(inline.PolicyNames ?? [])].filter(Boolean) };
   }));
-  let findings: { id?: string; title?: string; severity?: string; status?: string }[] = [];
+  let findings: SecurityHubFinding[] = [];
   let findingsError: string | null = null;
+  let securityHub: { version: 'v2' | 'legacy' | 'unavailable'; enabled: boolean; arn?: string; subscribedAt?: string; features?: unknown } = {
+    version: 'unavailable', enabled: false,
+  };
   try {
-    const response = await new SecurityHubClient(clientConfig(region)).send(new GetFindingsCommand({ MaxResults: 50 }));
-    findings = (response.Findings ?? []).map((f) => ({ id: f.Id, title: f.Title, severity: f.Severity?.Label, status: f.Workflow?.Status }));
-  } catch (error) { findingsError = awsError(error); }
+    const client = new SecurityHubClient(clientConfig(region));
+    const hub = await client.send(new DescribeSecurityHubV2Command({}));
+    const response = await client.send(new GetFindingsV2Command({ MaxResults: 50 }));
+    findings = (response.Findings ?? []).map(normalizeSecurityHubV2Finding);
+    securityHub = { version: 'v2', enabled: true, arn: hub.HubV2Arn, subscribedAt: hub.SubscribedAt, features: hub.Features };
+  } catch (v2Error) {
+    try {
+      const response = await new SecurityHubClient(clientConfig(region)).send(new GetFindingsCommand({ MaxResults: 50 }));
+      findings = (response.Findings ?? []).map((f) => ({
+        id: f.Id, title: f.Title, severity: f.Severity?.Label, status: f.Workflow?.Status,
+        resource: f.Resources?.[0]?.Id, description: f.Description,
+      }));
+      securityHub = { version: 'legacy', enabled: true };
+    } catch {
+      findingsError = securityHubError(v2Error);
+    }
+  }
+  let standards: { subscriptionArn?: string; standardsArn?: string; name: string; status?: string; controlsUpdatable?: string }[] = [];
+  let standardsError: string | null = null;
+  try {
+    const response = await new SecurityHubClient(clientConfig(region)).send(new GetEnabledStandardsCommand({ MaxResults: 100 }));
+    standards = (response.StandardsSubscriptions ?? []).map((standard) => ({
+      subscriptionArn: standard.StandardsSubscriptionArn,
+      standardsArn: standard.StandardsArn,
+      name: standard.StandardsArn?.includes('aws-foundational-security-best-practices')
+        ? 'AWS Foundational Security Best Practices v1.0.0'
+        : standard.StandardsArn?.split('/standards/')[1] ?? standard.StandardsArn ?? 'Estándar de Security Hub',
+      status: standard.StandardsStatus,
+      controlsUpdatable: standard.StandardsControlsUpdatable,
+    }));
+  } catch (error) {
+    standardsError = awsError(error);
+  }
   const trailStatuses = await Promise.all((trails.trailList ?? []).map(async (trail) => {
     try {
       const status = await new CloudTrailClient(clientConfig(region)).send(new GetTrailStatusCommand({ Name: trail.TrailARN ?? trail.Name }));
       return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: status.IsLogging };
     } catch { return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: null }; }
   }));
+  const [configResult, inspectorResult] = await Promise.allSettled([
+    configSecurityPosture(region), inspectorSecurityPosture(region),
+  ]);
   return {
     accountSummary: summary.SummaryMap ?? {}, identities,
     roles: mappedRoles,
     trails: trailStatuses,
-    findings, findingsError, truncated: Boolean(users.IsTruncated || roles.IsTruncated),
+    findings, findingsError, securityHub, standards, standardsError, truncated: Boolean(users.IsTruncated || roles.IsTruncated),
+    config: configResult.status === 'fulfilled' ? configResult.value : null,
+    configError: configResult.status === 'rejected' ? awsError(configResult.reason) : null,
+    inspector: inspectorResult.status === 'fulfilled' ? inspectorResult.value : null,
+    inspectorError: inspectorResult.status === 'rejected' ? awsError(inspectorResult.reason) : null,
+  };
+}
+
+async function configSecurityPosture(region: string) {
+  const client = new ConfigServiceClient(clientConfig(region));
+  const [recorderList, recorderResponse, complianceResponse] = await Promise.all([
+    client.send(new ListConfigurationRecordersCommand({ MaxResults: 20 })),
+    client.send(new DescribeConfigurationRecorderStatusCommand({})),
+    client.send(new DescribeComplianceByConfigRuleCommand({})),
+  ]);
+  const statuses = new Map((recorderResponse.ConfigurationRecordersStatus ?? []).map((recorder) => [recorder.arn ?? recorder.name, recorder]));
+  return {
+    recorders: (recorderList.ConfigurationRecorderSummaries ?? []).map((recorder) => {
+      const status = statuses.get(recorder.arn ?? recorder.name);
+      return {
+        arn: recorder.arn, name: recorder.name, servicePrincipal: recorder.servicePrincipal,
+        recordingScope: recorder.recordingScope, recording: status?.recording ?? recorder.recordingScope === 'INTERNAL', lastStatus: status?.lastStatus,
+        lastErrorCode: status?.lastErrorCode, lastStatusChangeTime: status?.lastStatusChangeTime?.toISOString(),
+      };
+    }),
+    rules: (complianceResponse.ComplianceByConfigRules ?? []).map((rule) => ({
+      name: rule.ConfigRuleName, complianceType: rule.Compliance?.ComplianceType,
+      nonCompliantResources: rule.Compliance?.ComplianceContributorCount?.CappedCount ?? 0,
+      capExceeded: rule.Compliance?.ComplianceContributorCount?.CapExceeded ?? false,
+    })),
+    truncated: Boolean(recorderList.NextToken || complianceResponse.NextToken),
+  };
+}
+
+async function inspectorSecurityPosture(region: string) {
+  const client = new Inspector2Client(clientConfig(region));
+  const [accountResponse, coverageResponse, findingsResponse] = await Promise.all([
+    client.send(new BatchGetAccountStatusCommand({})),
+    client.send(new ListCoverageCommand({ maxResults: 100 })),
+    client.send(new ListInspectorFindingsCommand({
+      maxResults: 100,
+      filterCriteria: { findingStatus: [{ comparison: 'EQUALS', value: 'ACTIVE' }] },
+    })),
+  ]);
+  return {
+    accountStatus: accountResponse.accounts?.[0]?.state?.status,
+    resourceState: accountResponse.accounts?.[0]?.resourceState,
+    coverage: (coverageResponse.coveredResources ?? []).map((resource) => ({
+      resourceId: resource.resourceId, resourceType: resource.resourceType, scanType: resource.scanType,
+      statusCode: resource.scanStatus?.statusCode, statusReason: resource.scanStatus?.reason,
+      lastScannedAt: resource.lastScannedAt?.toISOString(),
+    })),
+    findings: (findingsResponse.findings ?? []).map((finding) => ({
+      id: finding.findingArn, title: finding.title, description: finding.description, severity: finding.severity,
+      status: finding.status, resource: finding.resources?.[0]?.id, resourceType: finding.resources?.[0]?.type,
+      inspectorScore: finding.inspectorScore, fixAvailable: finding.fixAvailable,
+      recommendation: finding.remediation?.recommendation?.text,
+    })),
+    truncated: Boolean(coverageResponse.nextToken || findingsResponse.nextToken),
   };
 }
 

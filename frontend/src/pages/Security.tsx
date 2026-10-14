@@ -20,7 +20,7 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { Card } from '../components/ui/Card';
 import { InfoTooltip } from '../components/ui/InfoTooltip';
 import { Select } from '../components/ui/Select';
-import type { ControlSeguridad, UsuarioIAM } from '../types/cloud';
+import type { AwsConnectionStatus, ControlSeguridad, UsuarioIAM } from '../types/cloud';
 import { useCloud } from '../context/CloudContext';
 import { useAws } from '../hooks/useAws';
 import { api, type AwsResponse } from '../lib/api';
@@ -32,6 +32,22 @@ type SecurityData = {
   trails: { name?: string; multiRegion?: boolean; logFileValidation?: boolean; isLogging?: boolean | null }[];
   findings: { id?: string; title?: string; severity?: string; status?: string }[];
   findingsError: string | null;
+  standards: { subscriptionArn?: string; standardsArn?: string; name: string; status?: string; controlsUpdatable?: string }[];
+  standardsError: string | null;
+  config: {
+    recorders: { name?: string; recording: boolean; lastStatus?: string; lastErrorCode?: string }[];
+    rules: { name?: string; complianceType?: string; nonCompliantResources: number; capExceeded: boolean }[];
+    truncated: boolean;
+  } | null;
+  configError: string | null;
+  inspector: {
+    accountStatus?: string;
+    resourceState?: unknown;
+    coverage: { resourceId?: string; resourceType?: string; scanType?: string; statusCode?: string; statusReason?: string }[];
+    findings: { id?: string; title?: string; description?: string; severity?: string; status?: string; resource?: string; recommendation?: string }[];
+    truncated: boolean;
+  } | null;
+  inspectorError: string | null;
   truncated: boolean;
 };
 
@@ -49,6 +65,7 @@ const accionesPrueba = ['s3:GetObject', 's3:DeleteBucket', 'ec2:RunInstances', '
 
 export default function Security() {
   const { ambiente, regionPrincipal } = useCloud();
+  const awsConnection = useAws<AwsConnectionStatus>('/aws/connection');
   const security = useAws<SecurityData>(`/aws/security?region=${regionPrincipal}`);
   const [dominioActivo, setDominioActivo] = useState<string>('Todos');
   const [filtroNivel, setFiltroNivel] = useState<string>('Todos');
@@ -68,7 +85,16 @@ export default function Security() {
     { id: 'root-mfa', dominio: 'Protección de la cuenta', titulo: 'MFA de la cuenta root', descripcion: `IAM AccountMFAEnabled: ${security.data.accountSummary.AccountMFAEnabled ?? 'sin dato'}`, nivel: security.data.accountSummary.AccountMFAEnabled === 1 ? 'correcto' : 'problema', recomendacion: 'Habilitar MFA si el indicador es 0.' },
     { id: 'iam-mfa', dominio: 'Gestión de identidades (IAM)', titulo: 'MFA de usuarios IAM', descripcion: `${security.data.identities.filter((u) => u.mfa).length} de ${security.data.identities.length} usuarios con MFA`, nivel: security.data.identities.every((u) => u.mfa) ? 'correcto' : 'revision', recomendacion: security.data.identities.length ? 'Revisar los usuarios sin MFA.' : 'No hay usuarios IAM en esta cuenta.' },
     { id: 'cloudtrail', dominio: 'Cumplimiento', titulo: 'Registro de CloudTrail', descripcion: `${security.data.trails.filter((t) => t.isLogging).length} de ${security.data.trails.length} trails registrando en ${regionPrincipal}`, nivel: security.data.trails.some((t) => t.isLogging) ? 'correcto' : 'problema', recomendacion: 'Verificar el registro de eventos de CloudTrail en la cuenta.' },
+    ...security.data.standards.map((standard) => ({ id: standard.subscriptionArn ?? standard.standardsArn ?? standard.name, dominio: 'Cumplimiento' as const, titulo: standard.name, descripcion: `Estado del estándar: ${standard.status ?? 'sin dato'}`, nivel: (standard.status === 'READY' ? 'correcto' : standard.status === 'PENDING' ? 'revision' : 'problema') as ControlSeguridad['nivel'], recomendacion: standard.status === 'READY' ? 'Mantener el estándar habilitado y revisar sus hallazgos.' : 'Esperar a que AWS termine de preparar los controles y volver a ejecutar la auditoría.' })),
     ...(security.data.findingsError ? [] : security.data.findings.map((f) => ({ id: f.id ?? f.title ?? 'finding', dominio: 'Cumplimiento' as const, titulo: f.title ?? 'Hallazgo Security Hub', descripcion: `${f.severity ?? 'Sin severidad'} · ${f.status ?? 'Sin estado'}`, nivel: (f.severity === 'CRITICAL' || f.severity === 'HIGH' ? 'problema' : 'revision') as ControlSeguridad['nivel'], recomendacion: 'Revisar el hallazgo en Security Hub.' }))),
+    ...(security.data.config ? [
+      { id: 'config-recorder', dominio: 'Cumplimiento' as const, titulo: 'Grabación de AWS Config', descripcion: `${security.data.config.recorders.filter((recorder) => recorder.recording).length} de ${security.data.config.recorders.length} grabadores activos`, nivel: (security.data.config.recorders.some((recorder) => recorder.recording && recorder.lastStatus !== 'FAILURE') ? 'correcto' : 'problema') as ControlSeguridad['nivel'], recomendacion: 'Mantener un configuration recorder activo y sin errores.' },
+      ...security.data.config.rules.filter((rule) => rule.complianceType === 'NON_COMPLIANT').map((rule) => ({ id: `config-${rule.name}`, dominio: 'Cumplimiento' as const, titulo: `AWS Config: ${rule.name ?? 'regla sin nombre'}`, descripcion: `${rule.nonCompliantResources} recurso(s) no conformes`, nivel: 'revision' as const, recomendacion: 'Corregir los recursos afectados y volver a evaluar la regla.' })),
+    ] : []),
+    ...(security.data.inspector ? [
+      { id: 'inspector-coverage', dominio: 'Protección de datos' as const, titulo: 'Cobertura de Amazon Inspector', descripcion: security.data.inspector.accountStatus === 'DISABLED' ? 'Desactivado: no hay recursos EC2, ECR o Lambda que requieran cobertura' : `${security.data.inspector.coverage.length} recursos cubiertos en ${regionPrincipal}`, nivel: (security.data.inspector.accountStatus === 'DISABLED' || (security.data.inspector.coverage.length && security.data.inspector.coverage.every((resource) => resource.statusCode === 'ACTIVE')) ? 'correcto' : 'revision') as ControlSeguridad['nivel'], recomendacion: security.data.inspector.accountStatus === 'DISABLED' ? 'Activar Inspector solo cuando existan recursos compatibles.' : 'Confirmar que los recursos compatibles tengan estado de análisis ACTIVE.' },
+      ...security.data.inspector.findings.map((finding) => ({ id: finding.id ?? finding.title ?? 'inspector-finding', dominio: 'Protección de datos' as const, titulo: finding.title ?? 'Hallazgo de Amazon Inspector', descripcion: `${finding.severity ?? 'Sin severidad'} · ${finding.status ?? 'Sin estado'}`, nivel: (finding.severity === 'CRITICAL' || finding.severity === 'HIGH' ? 'problema' : 'revision') as ControlSeguridad['nivel'], recomendacion: finding.recommendation ?? 'Aplicar la remediación indicada por Amazon Inspector.' })),
+    ] : []),
   ] : [];
 
   const correctos = controlesAmbiente.filter((c) => c.nivel === 'correcto').length;
@@ -110,20 +136,27 @@ export default function Security() {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {awsConnection.data && <Card className={`p-4 ${awsConnection.data.roleActive ? 'border-emerald-500/30' : awsConnection.data.readyForAssessment ? 'border-amber-500/30' : 'border-rose-500/30'}`}>
+        <div className="flex items-start gap-3">
+          {awsConnection.data.roleActive ? <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-600" /> : <ShieldAlert size={20} className={`mt-0.5 shrink-0 ${awsConnection.data.readyForAssessment ? 'text-amber-600' : 'text-rose-600'}`} />}
+          <div className="min-w-0"><strong className="block text-sm text-ink">Identidad utilizada por CloudOps: {awsConnection.data.principalType}</strong><p className="mt-1 text-xs text-muted">{awsConnection.data.recommendation}</p>{awsConnection.data.arn && <p className="mt-1 break-all text-[10px] text-muted">{awsConnection.data.arn}</p>}</div>
+        </div>
+      </Card>}
+      {awsConnection.error && <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-600">No se pudo verificar la identidad AWS: {awsConnection.error}</div>}
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line pb-4 mb-5">
           <div>
             <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-              <ShieldCheck size={20} className="text-blue-600" /> Postura de Seguridad & Auditoría Continua
+              <ShieldCheck size={20} className="text-blue-600" /> Centro de Seguridad de la Cuenta AWS
               <InfoTooltip
-                titulo="CIS AWS Foundations Benchmark"
-                descripcion="Estándar de seguridad desarrollado por el Center for Internet Security. Define controles mínimos para asegurar cuentas AWS: MFA obligatorio, cifrado de volúmenes, rotación de credenciales y habilitación de CloudTrail en todas las regiones."
+                titulo="AWS Foundational Security Best Practices"
+                descripcion="Estándar administrado por AWS Security Hub que evalúa automáticamente configuraciones de cuenta y recursos frente a prácticas fundamentales de seguridad."
                 size="md"
               />
             </h2>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <p className="text-xs text-muted">
-                Controles puntuales consultados en IAM, CloudTrail y Security Hub
+                Controles consultados en IAM, CloudTrail, Security Hub, AWS Config y Amazon Inspector
               </p>
               <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badgeAmbiente}`}>
                 {ambiente}
@@ -143,9 +176,12 @@ export default function Security() {
           </button>
         </div>
 
-        {(auditando || security.loading) && <p className="mb-6 text-xs text-muted">Consultando IAM, CloudTrail y Security Hub...</p>}
+        {(auditando || security.loading) && <p className="mb-6 text-xs text-muted">Consultando IAM, CloudTrail, Security Hub, AWS Config y Amazon Inspector...</p>}
         {security.error && <p className="mb-6 text-xs text-rose-600">{security.error}</p>}
         {security.data?.findingsError && <p className="mb-6 text-xs text-amber-600">Security Hub: {security.data.findingsError}</p>}
+        {security.data?.standardsError && <p className="mb-3 text-xs text-amber-600">Estándares Security Hub: {security.data.standardsError}</p>}
+        {security.data?.configError && <p className="mb-3 text-xs text-amber-600">AWS Config: {security.data.configError}</p>}
+        {security.data?.inspectorError && <p className="mb-3 text-xs text-amber-600">Amazon Inspector: {security.data.inspectorError}</p>}
 
         {auditoriaCompletada && (
           <div className="mb-6 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold text-emerald-600 flex items-center gap-2">
@@ -160,7 +196,7 @@ export default function Security() {
               <p className="text-2xl font-extrabold text-ink">{correctos}</p>
               <p className="text-xs text-muted font-medium flex items-center gap-1">
                 Controles Correctos
-                <InfoTooltip titulo="Estado Correcto" descripcion="El control cumple completamente con el estándar CIS AWS. No requiere acción inmediata. Se monitorea periódicamente para detectar regresiones." />
+                <InfoTooltip titulo="Estado Correcto" descripcion="El control cumple con el estándar activo de Security Hub. No requiere acción inmediata y se seguirá observando para detectar regresiones." />
               </p>
             </div>
           </div>
@@ -170,7 +206,7 @@ export default function Security() {
               <p className="text-2xl font-extrabold text-ink">{revisiones}</p>
               <p className="text-xs text-muted font-medium flex items-center gap-1">
                 Requieren Revisión
-                <InfoTooltip titulo="Estado: Requiere Revisión" descripcion="El control presenta una desviación parcial del estándar. No es un fallo crítico pero debe resolverse antes de una auditoría formal o antes de pasar a producción." />
+                <InfoTooltip titulo="Estado: Requiere Revisión" descripcion="El control o la cobertura necesitan revisión. Puede tratarse de una evaluación pendiente, un servicio no aplicable o una desviación que debe validarse." />
               </p>
             </div>
           </div>
@@ -180,7 +216,7 @@ export default function Security() {
               <p className="text-2xl font-extrabold text-ink">{problemas}</p>
               <p className="text-xs text-muted font-medium flex items-center gap-1">
                 Problemas Detectados
-                <InfoTooltip titulo="Estado: Problema Crítico" descripcion="El control incumple el estándar y representa un riesgo de seguridad activo. Requiere remediación inmediata. Puede impedir certificaciones SOC 2 o PCI-DSS." />
+                <InfoTooltip titulo="Estado: Problema" descripcion="El control incumple el estándar activo o detecta una configuración de riesgo. Debe revisarse la evidencia y priorizar la remediación según severidad." />
               </p>
             </div>
           </div>

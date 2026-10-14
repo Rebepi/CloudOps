@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Trash2,
   ClipboardList,
@@ -18,6 +19,7 @@ import {
   Compass,
   Zap,
   Download,
+  FolderKanban,
 } from 'lucide-react';
 import { useCloud } from '../context/CloudContext';
 import { serviciosAWS } from '../data/awsServices';
@@ -181,7 +183,9 @@ const estadoInicial: FormState = {
 };
 
 export default function Planning() {
+  const navigate = useNavigate();
   const { propuestas, agregarPropuesta, eliminarPropuesta, regionPrincipal, refrescar } = useCloud();
+  const [convirtiendoPropuesta, setConvirtiendoPropuesta] = useState<string | null>(null);
   const awsRegions = useAws<{ id: string; status: string }[]>('/aws/regions');
   const [form, setForm] = useState<FormState>({ ...estadoInicial, regionId: regionPrincipal });
   const [errores, setErrores] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -289,6 +293,24 @@ export default function Planning() {
       setTimeout(() => setConfirmacion(false), 4000);
     } catch (cause) {
       setErrorGuardado(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const abrirComoProyecto = async (propuesta: PropuestaCloud) => {
+    if (propuesta.projectId) {
+      navigate(`/projects/${propuesta.projectId}`);
+      return;
+    }
+    setConvirtiendoPropuesta(propuesta.id);
+    setErrorGuardado(null);
+    try {
+      const result = await api<{ data: { id: string } }>(`/projects/from-proposal/${propuesta.id}`, { method: 'POST' });
+      await refrescar();
+      navigate(`/projects/${result.data.id}`);
+    } catch (error) {
+      setErrorGuardado(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConvirtiendoPropuesta(null);
     }
   };
 
@@ -1193,6 +1215,15 @@ export default function Planning() {
                       </div>
 
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => void abrirComoProyecto(p)}
+                          disabled={convirtiendoPropuesta === p.id}
+                          className="px-2.5 py-1.5 rounded-xl border border-indigo-500/20 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                          title={p.projectId ? 'Abrir el proyecto relacionado' : 'Convertir esta propuesta en un proyecto evaluable'}
+                        >
+                          <FolderKanban size={13} />
+                          <span>{convirtiendoPropuesta === p.id ? 'Creando…' : p.projectId ? 'Proyecto' : 'Crear proyecto'}</span>
+                        </button>
                         <button
                           onClick={() => setPropuestaDetalle(p)}
                           className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"

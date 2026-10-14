@@ -2,6 +2,113 @@ export type Estado = 'activo' | 'revision' | 'inactivo';
 export type NivelSeguridad = 'correcto' | 'revision' | 'problema';
 export type Disponibilidad = 'basica' | 'alta' | 'critica';
 
+export interface Proyecto {
+  id: string;
+  name: string;
+  clientName?: string | null;
+  description: string;
+  applicationType: 'Web' | 'Móvil' | 'API' | 'Analítica' | 'Interna';
+  environment: 'Producción' | 'Staging' | 'Sandbox';
+  region: string;
+  status: 'active' | 'paused' | 'archived';
+  technologyStack: string[];
+  sourceMode: 'none' | 'zip' | 'repository' | 'aws';
+  createdAt: string;
+  updatedAt: string;
+  proposalCount?: number;
+  costItemCount?: number;
+  assessmentCount?: number;
+  latestAssessmentId?: string | null;
+  latestScore?: number | null;
+  latestCoverage?: number | null;
+  latestAssessmentStatus?: 'pending' | 'running' | 'completed' | 'failed' | null;
+  latestAssessmentAt?: string | null;
+  criticalHighFindings?: number;
+}
+
+export interface HallazgoSeguridad {
+  id: string;
+  assessmentId: string;
+  externalId?: string | null;
+  source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv';
+  category: string;
+  title: string;
+  description: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
+  status: string;
+  resource?: string | null;
+  recommendation: string;
+  evidence: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface EvaluacionSeguridad {
+  id: string;
+  projectId: string;
+  assessmentType: 'aws-account' | 'code' | 'full';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  region: string;
+  score: number | null;
+  coverage: number;
+  confidence: 'low' | 'medium' | 'high';
+  summary: {
+    counts?: Record<string, number>;
+    observedControls?: number;
+    totalControls?: number;
+    users?: number;
+    roles?: number;
+    securityHubAvailable?: boolean;
+    securityHubError?: string | null;
+    configAvailable?: boolean;
+    configError?: string | null;
+    configRecorders?: number;
+    configRules?: number;
+    inspectorAvailable?: boolean;
+    inspectorStatus?: string | null;
+    inspectorError?: string | null;
+    inspectorCoveredResources?: number;
+    inspectorFindings?: number;
+    entryCount?: number;
+    uncompressedBytes?: number;
+    filesAnalyzed?: number;
+    dependencyCount?: number;
+    vulnerabilitiesChecked?: number;
+    osvAvailable?: boolean;
+    osvError?: string | null;
+    methodology?: string;
+  };
+  errorMessage?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+  findingCount?: number;
+  findings?: HallazgoSeguridad[];
+  artifactId?: string | null;
+  artifactName?: string | null;
+  artifactSha256?: string | null;
+  artifactSizeBytes?: number | string | null;
+}
+
+export interface AwsConnectionStatus {
+  account?: string;
+  arn?: string;
+  userId?: string;
+  profile: string;
+  roleArn?: string | null;
+  principalType: 'root' | 'assumed-role' | 'iam-role' | 'iam-user' | 'unknown';
+  roleConfigured: boolean;
+  roleActive: boolean;
+  externalIdConfigured: boolean;
+  rootOverrideEnabled: boolean;
+  readyForAssessment: boolean;
+  checks: {
+    id: string;
+    label: string;
+    status: 'passed' | 'warning' | 'failed';
+    detail: string;
+  }[];
+  recommendation: string;
+}
+
 export type CategoriaServicio =
   | 'Cómputo'
   | 'Almacenamiento'
@@ -62,6 +169,7 @@ export interface Region {
 
 export interface PropuestaCloud {
   id: string;
+  projectId?: string;
   nombre: string;
   tipoAplicacion: 'Web' | 'Móvil' | 'API' | 'Analítica' | 'Interna';
   descripcion: string;

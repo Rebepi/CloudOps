@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowCloudOpsSourceIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "ArnEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:user/cloudops-source"
+        },
+        "StringEquals": {
+          "sts:ExternalId": "REPLACE_WITH_UNIQUE_EXTERNAL_ID"
+        }
+      }
+    }
+  ]
+}

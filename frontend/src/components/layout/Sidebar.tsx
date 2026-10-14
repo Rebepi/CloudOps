@@ -17,6 +17,7 @@ import {
   Zap,
   Activity,
   Settings,
+  FolderKanban,
 } from 'lucide-react';
 import { useCloud } from '../../context/CloudContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -61,6 +62,16 @@ const grupos: GrupoNav[] = [
         colorTono: 'from-blue-500 to-indigo-500',
         gradientFrom: '#3b82f6',
         gradientTo: '#6366f1',
+      },
+      {
+        to: '/projects',
+        texto: 'Proyectos',
+        icono: FolderKanban,
+        badge: 'Sec',
+        descripcion: 'Portafolio, evaluaciones y riesgo por proyecto',
+        colorTono: 'from-indigo-500 to-cyan-500',
+        gradientFrom: '#6366f1',
+        gradientTo: '#06b6d4',
       },
       {
         to: '/infrastructure',
@@ -116,10 +127,10 @@ const grupos: GrupoNav[] = [
       },
       {
         to: '/security',
-        texto: 'Seguridad & IAM',
+        texto: 'Centro de Seguridad',
         icono: ShieldCheck,
         badge: 'PoLP',
-        descripcion: 'Políticas IAM y responsabilidad compartida',
+        descripcion: 'Postura global de cuenta, IAM y cumplimiento',
         colorTono: 'from-fuchsia-500 to-pink-600',
         gradientFrom: '#d946ef',
         gradientTo: '#db2777',

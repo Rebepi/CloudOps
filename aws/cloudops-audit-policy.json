@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudInventoryRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:ListDistributions",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:GetMetricData",
+        "dynamodb:ListTables",
+        "ec2:Describe*",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "kms:ListKeys",
+        "lambda:ListFunctions",
+        "rds:DescribeDBInstances",
+        "route53:ListHostedZones",
+        "s3:ListAllMyBuckets",
+        "wafv2:ListWebACLs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecurityPostureRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetTrailStatus",
+        "cloudtrail:LookupEvents",
+        "config:DescribeComplianceByConfigRule",
+        "config:DescribeConfigurationRecorderStatus",
+        "config:ListConfigurationRecorders",
+        "iam:GetAccountSummary",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListMFADevices",
+        "iam:ListRolePolicies",
+        "iam:ListRoles",
+        "iam:ListUserPolicies",
+        "iam:ListUsers",
+        "iam:SimulatePrincipalPolicy",
+        "inspector2:ListCoverage",
+        "inspector2:ListFindings",
+        "inspector2:BatchGetAccountStatus",
+        "securityhub:DescribeSecurityHubV2",
+        "securityhub:GetEnabledStandards",
+        "securityhub:GetFindings",
+        "securityhub:GetFindingsV2",
+        "securityhub:ListFreeTrialStatusesV2"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CostAndPricingRead",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "ce:GetCostAndUsage",
+        "compute-optimizer:GetEC2InstanceRecommendations",
+        "pricing:GetProducts"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

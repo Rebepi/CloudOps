@@ -1,6 +1,6 @@
 # CloudOps local
 
-Consola local para consultar datos de una cuenta AWS desde la interfaz original del proyecto. El frontend usa React y Vite; la API usa Fastify y TypeScript; PostgreSQL 17 corre en Docker. La API consulta AWS con el perfil local `cloudops-root`. Las propuestas, partidas y ajustes se guardan en PostgreSQL local.
+Consola local para consultar datos de una cuenta AWS desde la interfaz original del proyecto. El frontend usa React y Vite; la API usa Fastify y TypeScript; PostgreSQL 17 corre en Docker. La API consulta AWS con el perfil de rol temporal `cloudops-audit`. Las propuestas, partidas, proyectos y evaluaciones se guardan en PostgreSQL local.
 
 ## Puesta en marcha en otra PC
 
@@ -34,9 +34,10 @@ Abre `http://127.0.0.1:29000`. La API responde en `http://127.0.0.1:27902/api/v1
 | Vista | Fuente principal |
 | --- | --- |
 | Dashboard | STS, EC2, RDS, S3, CloudWatch, CloudTrail y Cost Explorer |
+| Proyectos | Portafolio local con evaluaciones AWS y de código ZIP, puntaje, cobertura, hallazgos e historial |
 | Infraestructura | Regiones, zonas de disponibilidad e inventario AWS de la región seleccionada |
 | Red | VPC, subredes, rutas, gateways, grupos de seguridad y Flow Logs |
-| Seguridad | IAM, CloudTrail y Security Hub si está habilitado; simulación de políticas IAM |
+| Seguridad | IAM, CloudTrail, Security Hub, AWS Config y Amazon Inspector si están habilitados; simulación de políticas IAM |
 | Costos | Cost Explorer y partidas de planificación guardadas localmente |
 | Servicios | Catálogo descriptivo y ofertas bajo demanda de AWS Price List |
 | Planificación | Propuestas guardadas en PostgreSQL local |
@@ -50,10 +51,17 @@ La importación automática lee `cops.propuestas` y `cops.costos` del mismo orig
 - Ejecuta `npm run migrate` desde `backend` después de cambios en el esquema.
 - Verifica con `npm run build` en ambos directorios y `npm run lint` en `frontend`.
 - Las credenciales AWS se resuelven en el backend mediante AWS CLI. No se copian al repositorio, al contenedor ni al navegador.
+- La conexión admite credenciales temporales mediante `AWS_ROLE_ARN` y STS. El backend bloquea nuevas evaluaciones cuando detecta que el principal activo es root. Consulta [la guía del rol de auditoría](docs/AWS_AUDIT_ROLE.md) y las políticas de ejemplo en `aws/`.
+- La activación limitada, verificación y baja de Security Hub están documentadas en [la guía de prueba controlada](docs/SECURITY_HUB_TRIAL.md).
 - Las llamadas AWS implementadas son de lectura o simulación de políticas; crear propuestas y partidas solo modifica PostgreSQL local. No hay despliegue de infraestructura AWS.
+- Las evaluaciones guardadas desde un proyecto consultan IAM, CloudTrail, Security Hub, AWS Config y Amazon Inspector con el perfil local configurado, normalizan los hallazgos y conservan cada ejecución en PostgreSQL. La consulta es de solo lectura: no habilita servicios ni crea reglas o escaneos.
+- La evaluación de código acepta un ZIP de hasta 100 MB, valida rutas, cifrado, enlaces, tamaño expandido y relación de compresión, y lo procesa sin extraer ni ejecutar el proyecto. Analiza patrones de código, secretos, IaC y versiones fijadas; para dependencias consulta OSV enviando únicamente ecosistema, nombre y versión. El ZIP temporal se elimina al finalizar y se conserva su SHA-256 con el reporte.
+- Los límites del análisis son 10 000 entradas, 250 MB descomprimidos, 8 MB por entrada y 60 MB acumulados de texto. Un resultado estático señala riesgos para revisión; no sustituye pruebas dinámicas, pentesting ni una certificación.
 - El token de Cloudflare retirado de los scripts actuales permanece en el historial Git anterior y debe revocarse.
 
 Para continuar el desarrollo con otro asistente, usa el [prompt de continuidad](docs/PROMPT_CONTINUIDAD.md).
+
+La documentación maestra de la implementación de seguridad, operación y roadmap está en [docs/IMPLEMENTACION_SEGURIDAD_AWS.md](docs/IMPLEMENTACION_SEGURIDAD_AWS.md).
 
 ## Inicio desde el contenedor Nexus
 

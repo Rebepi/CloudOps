@@ -12,6 +12,7 @@ import { Logo } from '../ui/Logo';
 
 const titulos: Record<string, { titulo: string; descripcion: string }> = {
   '/dashboard': { titulo: 'Dashboard General', descripcion: 'Telemetría y KPIs ejecutivos de la arquitectura Cloud' },
+  '/projects': { titulo: 'Portafolio de Proyectos', descripcion: 'Arquitectura, costos, seguridad e historial por proyecto' },
   '/planning': { titulo: 'Planificación Cloud', descripcion: 'Formulador de propuestas según Well-Architected Framework' },
   '/costs': { titulo: 'Costos y Presupuesto', descripcion: 'Calculadora dinámica de infraestructura y análisis OpEx vs CapEx' },
   '/infrastructure': { titulo: 'Infraestructura Global', descripcion: 'Regiones, zonas de disponibilidad y resiliencia multi-AZ' },
@@ -22,7 +23,9 @@ const titulos: Record<string, { titulo: string; descripcion: string }> = {
 
 export function Header({ onAbrirMenu }: { onAbrirMenu: () => void }) {
   const { pathname } = useLocation();
-  const info = titulos[pathname] ?? { titulo: 'CloudOps Dashboard', descripcion: 'Operaciones en la nube' };
+  const info = pathname.startsWith('/projects/')
+    ? { titulo: 'Espacio del Proyecto', descripcion: 'Evaluación contextual de arquitectura, costos y seguridad' }
+    : titulos[pathname] ?? { titulo: 'CloudOps Dashboard', descripcion: 'Operaciones en la nube' };
   const { regionPrincipal, setRegionPrincipal, ambiente, setAmbiente, exportarEstadoJson } = useCloud();
   const { user, logout } = useAuth();
   const [panelNotificaciones, setPanelNotificaciones] = useState(false);

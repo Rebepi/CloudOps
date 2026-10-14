@@ -9,7 +9,7 @@ export interface AwsResponse<T> {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== 'undefined' ? sessionStorage.getItem('cloudops_token') : null;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
     ...(init?.headers as Record<string, string>),
   };
 
