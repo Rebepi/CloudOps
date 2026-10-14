@@ -103,7 +103,7 @@ html {
   height: 100%;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
   margin: 0;
   padding: 0;
   border: 0;
@@ -132,7 +132,8 @@ body {
   min-height: 100vh;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  /* Clip horizontal overflow without creating a scroll container that traps sticky panels. */
+  overflow-x: clip;
 }
 
 #root {
@@ -630,4 +631,20 @@ input[type="range"]::-moz-range-thumb {
   .print-only {
     display: none !important;
   }
+}
+
+/* Custom sleek scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }

@@ -131,10 +131,21 @@ export default function Projects() {
             <h3 className="truncate text-base font-bold text-ink">{project.name}</h3>
             <p className="mt-1 line-clamp-2 text-xs text-muted">{project.description || 'Sin descripción.'}</p>
           </div>
-          <div className={`shrink-0 rounded-xl border px-3 py-2 text-center ${scoreTone(project.latestScore)}`}>
-            <strong className="block text-xl leading-none">{project.latestScore ?? '—'}</strong>
-            <span className="text-[9px] font-bold uppercase">seguridad</span>
-          </div>
+          {(() => {
+            let score = project.latestScore;
+            if ((score === 0 || score == null) && project.criticalHighFindings && project.criticalHighFindings > 0) {
+              const excess = (project.criticalHighFindings * 12) - 50;
+              score = excess > 0 ? Math.max(10, Math.round(50 / (1 + excess / 180))) : 20;
+            }
+            return (
+              <div className={`shrink-0 rounded-xl border px-3 py-2 text-center ${scoreTone(score)}`}>
+                <strong className="block text-xl leading-none font-black">
+                  {score != null ? `${score}/100` : '—'}
+                </strong>
+                <span className="text-[9px] font-bold uppercase tracking-wider">seguridad</span>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="flex flex-wrap gap-1.5 text-[10px]">
