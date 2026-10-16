@@ -8,8 +8,10 @@ export interface AwsResponse<T> {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== 'undefined' ? sessionStorage.getItem('cloudops_token') : null;
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const needsContentType = ['POST', 'PUT', 'PATCH'].includes(method);
   const headers: Record<string, string> = {
-    ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
+    ...(needsContentType ? { 'Content-Type': 'application/json' } : {}),
     ...(init?.headers as Record<string, string>),
   };
 
@@ -17,8 +19,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const body = init?.body ?? (needsContentType ? '{}' : undefined);
+
   const response = await fetch(`/api/v1${path}`, {
     ...init,
+    body,
     headers,
   });
 
