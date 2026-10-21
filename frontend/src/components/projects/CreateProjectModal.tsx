@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
+import { FileDropZone } from '../ui/FileDropZone';
 import { api } from '../../lib/api';
 import type { Proyecto } from '../../types/cloud';
 
@@ -89,6 +90,14 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
   const [creationStep, setCreationStep] = useState<string | null>(null);
   const [creationProgress, setCreationProgress] = useState(0);
   const [creationError, setCreationError] = useState<string | null>(null);
+  const [createdProject, setCreatedProject] = useState<Proyecto | null>(null);
+  const closeModal = () => {
+    if (saving) return;
+    if (createdProject) onCreated();
+    setCreatedProject(null);
+    setCreationError(null);
+    onCerrar();
+  };
 
   // Auto-parse repository URL or owner/repo shorthand
   const handleRepoInput = (input: string) => {
@@ -164,14 +173,15 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
       return;
     }
     if (!file.name.toLowerCase().endsWith('.zip')) {
-      alert('Solo se admiten archivos comprimidos con extensión .zip');
+      setCreationError('Solo se admiten archivos comprimidos con extensión .zip');
       return;
     }
     if (file.size > 100 * 1024 * 1024) {
-      alert('El archivo supera el límite de 100 MB.');
+      setCreationError('El archivo supera el límite de 100 MB.');
       return;
     }
     setArchiveFile(file);
+    setCreationError(null);
 
     // Auto-fill project name if empty
     if (!name.trim()) {
@@ -213,7 +223,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
         .map((t) => t.trim())
         .filter(Boolean);
 
-      const createRes = await api<{ data: Proyecto }>('/projects', {
+      const createRes = createdProject ? { data: createdProject } : await api<{ data: Proyecto }>('/projects', {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
@@ -236,6 +246,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
       });
 
       const newProject = createRes.data;
+      setCreatedProject(newProject);
       const projectId = newProject.id;
       setCreationProgress(40);
 
@@ -288,12 +299,16 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
       setCreationStep('¡Proyecto creado y conectado con éxito!');
 
       setTimeout(() => {
+        setCreatedProject(null);
+        setSaving(false);
         onCreated();
         onCerrar();
         navigate(`/projects/${projectId}`);
       }, 700);
     } catch (err) {
-      setCreationError(err instanceof Error ? err.message : String(err));
+      setCreationError(err instanceof TypeError && err.message === 'Failed to fetch'
+        ? 'La conexión se interrumpió durante la carga. El proyecto creado se conservará para reintentar sin duplicarlo.'
+        : err instanceof Error ? err.message : String(err));
       setSaving(false);
     }
   };
@@ -301,9 +316,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
   return (
     <Modal
       abierto={abierto}
-      onCerrar={() => {
-        if (!saving) onCerrar();
-      }}
+      onCerrar={closeModal}
       titulo="Crear nuevo proyecto"
       subtitulo="Configura el espacio de trabajo, fuente de código o conexión AWS para auditoría integral."
       tamano="2xl"
@@ -406,6 +419,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
 
         {/* Dynamic Section: ZIP Upload Details */}
         {sourceMode === 'zip' && (
+          <FileDropZone onFile={handleFileChange} onError={setCreationError} disabled={saving}>
           <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4 sm:p-5 space-y-4 animate-fade-in">
             <div className="flex items-center justify-between border-b border-violet-500/20 pb-3">
               <div className="flex items-center gap-2 text-violet-400 font-bold text-xs uppercase tracking-wider">
@@ -484,6 +498,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
               </div>
             )}
           </div>
+          </FileDropZone>
         )}
 
         {/* Dynamic Section: GitHub Repository Connection */}
@@ -757,7 +772,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
           <button
             type="button"
             disabled={saving}
-            onClick={onCerrar}
+            onClick={closeModal}
             className="rounded-xl border border-line px-4 py-2.5 text-xs font-semibold text-muted hover:text-ink disabled:opacity-50 cursor-pointer"
           >
             Cancelar
@@ -775,7 +790,7 @@ export function CreateProjectModal({ abierto, onCerrar, onCreated }: CreateProje
             ) : (
               <>
                 {sourceMode === 'zip' ? <Upload size={14} /> : sourceMode === 'repository' ? <GitBranch size={14} /> : <Cloud size={14} />}
-                {sourceMode === 'zip' ? 'Crear proyecto y subir ZIP' : sourceMode === 'repository' ? 'Crear proyecto y conectar repo' : 'Crear proyecto'}
+                {createdProject ? 'Reintentar carga / conexión' : sourceMode === 'zip' ? 'Crear proyecto y subir ZIP' : sourceMode === 'repository' ? 'Crear proyecto y conectar repo' : 'Crear proyecto'}
               </>
             )}
           </button>

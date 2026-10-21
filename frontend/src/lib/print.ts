@@ -94,10 +94,30 @@ table {
 </html>`);
   doc.close();
 
-  setTimeout(() => {
+  const paginated = elementId === 'security-report-pages';
+  if (paginated) {
+    const style = doc.createElement('style');
+    style.textContent = `@page { size: A4 portrait; margin: 0 !important; }
+      #security-report-pages { width: 210mm !important; max-width: none !important; }
+      .security-report-page { width:210mm !important; height:297mm !important; padding:16mm !important; margin:0 !important; box-shadow:none !important; break-after:page !important; }
+      .security-report-page:last-child { break-after:auto !important; }
+      .security-report-page-content { height:257mm !important; }
+      .security-report-page-number { display:block !important; }`;
+    doc.head.append(style);
+  }
+
+  // Wait for external styles, fonts and the logo before opening print preview.
+  void (async () => {
+    await Promise.all(Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).map((link) => new Promise<void>((resolve) => {
+      if ((link as HTMLLinkElement).sheet) return resolve();
+      link.addEventListener('load', () => resolve(), { once: true });
+      link.addEventListener('error', () => resolve(), { once: true });
+    })));
+    await doc.fonts.ready;
+    await Promise.all(Array.from(doc.images).map((image) => image.decode().catch(() => undefined)));
     iframe.contentWindow?.focus();
     iframe.contentWindow?.print();
     setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* noop */ } }, 3000);
-  }, 350);
+  })();
 }
 

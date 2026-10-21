@@ -2,6 +2,13 @@ export type Estado = 'activo' | 'revision' | 'inactivo';
 export type NivelSeguridad = 'correcto' | 'revision' | 'problema';
 export type Disponibilidad = 'basica' | 'alta' | 'critica';
 
+export interface RepositoryEntry {
+  path: string;
+  kind: 'file' | 'directory';
+  sizeBytes: number;
+  analysisStatus: 'analyzed' | 'unsupported' | 'text-limit' | 'binary' | 'directory';
+}
+
 export interface Proyecto {
   id: string;
   name: string;
@@ -172,6 +179,16 @@ export interface EvaluacionSeguridad {
         evidence: string[];
       }>;
     };
+    layerBreakdown?: Array<{
+      id: 'backend' | 'frontend' | 'infrastructure' | 'dependencies' | 'shared';
+      label: string;
+      candidateFiles: number;
+      analyzedFiles: number;
+      readCoverage: number;
+      findings: number;
+      counts: Record<string, number>;
+    }>;
+    repositoryInventory?: { entries: RepositoryEntry[]; complete: boolean };
     coverageMatrix?: Array<{
       id: string;
       label: string;

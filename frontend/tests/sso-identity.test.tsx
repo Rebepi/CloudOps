@@ -58,7 +58,7 @@ it('API requests use only the tab token even when another account is stored glob
   sessionStorage.setItem('cloudops_token', 'tab-token');
   const fetchMock = vi.fn(async () => response({})); vi.stubGlobal('fetch', fetchMock);
   await api('/auth/me');
-  expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer tab-token');
+  expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer tab-token');
 });
 it('without a ticket, ignores the old globally saved principal account', async () => {
   sessionStorage.clear(); window.history.replaceState(null, '', '/');

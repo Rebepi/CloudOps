@@ -10,13 +10,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== 'undefined' ? sessionStorage.getItem('cloudops_token') : null;
   const method = (init?.method ?? 'GET').toUpperCase();
   const needsContentType = ['POST', 'PUT', 'PATCH'].includes(method);
-  const headers: Record<string, string> = {
-    ...(needsContentType ? { 'Content-Type': 'application/json' } : {}),
-    ...(init?.headers as Record<string, string>),
-  };
+  const multipart = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+  const headers = new Headers(init?.headers);
+  if (multipart) headers.delete('Content-Type');
+  else if (needsContentType && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
-  if (token && !headers['Authorization'] && !headers['authorization']) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const body = init?.body ?? (needsContentType ? '{}' : undefined);

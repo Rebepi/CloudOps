@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeTextFile, parseDependencies, validateArchivePath } from './zipSecurityScanner.js';
+import { analyzeTextFile, classifyRepositoryPath, parseDependencies, validateArchivePath } from './zipSecurityScanner.js';
 
 test('rechaza rutas ZIP capaces de escapar del directorio lógico', () => {
   assert.equal(validateArchivePath('src/app.ts'), true);
@@ -8,6 +8,16 @@ test('rechaza rutas ZIP capaces de escapar del directorio lógico', () => {
   assert.equal(validateArchivePath('src/../../secreto.txt'), false);
   assert.equal(validateArchivePath('C:/Windows/system.ini'), false);
   assert.equal(validateArchivePath('/etc/passwd'), false);
+});
+
+test('clasifica evidencia por capa sin confundir dependencias e infraestructura', () => {
+  assert.equal(classifyRepositoryPath('SalesIA-main/backend/src/api.py'), 'backend');
+  assert.equal(classifyRepositoryPath('SalesIA-main/frontend/src/App.tsx'), 'frontend');
+  assert.equal(classifyRepositoryPath('SalesIA-main/backend/uv.lock'), 'dependencies');
+  assert.equal(classifyRepositoryPath('SalesIA-main/frontend/package-lock.json'), 'dependencies');
+  assert.equal(classifyRepositoryPath('SalesIA-main/compose.yaml'), 'infrastructure');
+  assert.equal(classifyRepositoryPath('SalesIA-main/backend/Dockerfile'), 'infrastructure');
+  assert.equal(classifyRepositoryPath('SalesIA-main/README.md'), 'shared');
 });
 
 test('detecta secretos y patrones inseguros sin guardar el valor sensible', () => {

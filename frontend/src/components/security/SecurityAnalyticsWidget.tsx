@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { HallazgoSeguridad } from '../../types/cloud';
 import { detectAwsService } from './findingServiceHelper';
+import { useMotionProgress } from '../../hooks/useMotionProgress';
 
 interface SecurityAnalyticsProps {
   findings: HallazgoSeguridad[];
@@ -19,6 +20,8 @@ export function SecurityAnalyticsWidget({
   activeServiceFilter,
 }: SecurityAnalyticsProps) {
   const [hoveredSeverity, setHoveredSeverity] = useState<string | null>(null);
+  const motion = useMotionProgress(findings.map((finding) => `${finding.id}:${finding.severity}:${finding.status}`).join('|'));
+  const count = (value: number) => Math.round(value * motion);
 
   // 1. Severity Distribution
   const severityStats = useMemo(() => {
@@ -208,8 +211,8 @@ export function SecurityAnalyticsWidget({
                 r={radius}
                 stroke={seg.color}
                 strokeWidth={hoveredSeverity === seg.key ? '11' : '9'}
-                strokeDasharray={seg.strokeDasharray}
-                strokeDashoffset={seg.strokeDashoffset}
+                strokeDasharray={`${(seg.count / (totalFindings || 1)) * circumference * motion} ${circumference - (seg.count / (totalFindings || 1)) * circumference * motion}`}
+                strokeDashoffset={seg.strokeDashoffset * motion}
                 strokeLinecap="round"
                 fill="transparent"
                 className="transition-all duration-300 cursor-pointer"
@@ -220,7 +223,7 @@ export function SecurityAnalyticsWidget({
           </svg>
           {/* Donut Center */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-            <span className="text-xl font-black text-ink leading-tight">{totalFindings}</span>
+            <span aria-label={String(totalFindings)} className="text-xl font-black text-ink leading-tight tabular-nums">{count(totalFindings)}</span>
             <span className="text-[9px] uppercase tracking-wider text-muted font-bold">Hallazgos</span>
           </div>
         </div>
@@ -241,8 +244,8 @@ export function SecurityAnalyticsWidget({
                 <span className="font-semibold text-ink text-[11px]">{seg.label}</span>
               </div>
               <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                <strong className="text-ink">{seg.count}</strong>
-                <span className="text-muted text-[10px]">({seg.percent}%)</span>
+                <strong className="text-ink tabular-nums">{count(seg.count)}</strong>
+                <span className="text-muted text-[10px] tabular-nums">({count(seg.percent)}%)</span>
               </div>
             </div>
           ))}
@@ -279,8 +282,8 @@ export function SecurityAnalyticsWidget({
                     </strong>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono text-xs">
-                    <span className="font-bold text-ink">{svc.count}</span>
-                    <span className="text-[10px] text-muted">({svc.percent}%)</span>
+                    <span className="font-bold text-ink tabular-nums">{count(svc.count)}</span>
+                    <span className="text-[10px] text-muted tabular-nums">({count(svc.percent)}%)</span>
                   </div>
                 </div>
 
@@ -288,7 +291,7 @@ export function SecurityAnalyticsWidget({
                 <div className="w-full bg-line/60 h-2 rounded-full overflow-hidden">
                   <div
                     className={`${svc.barClass} h-full rounded-full transition-all duration-500`}
-                    style={{ width: `${Math.min(100, Math.max(svc.count ? 4 : 0, svc.percent))}%` }}
+                    style={{ width: `${Math.min(100, svc.percent) * motion}%` }}
                   />
                 </div>
                 <span className="block mt-1 text-[10px] text-muted truncate">{svc.desc}</span>
@@ -305,30 +308,30 @@ export function SecurityAnalyticsWidget({
             <TrendingUp size={13} className="text-emerald-500" /> Tasa de Tratamiento
           </span>
           <span className="text-xs font-black text-emerald-500 font-mono">
-            {lifecycleStats.resolutionRate}%
+            {count(lifecycleStats.resolutionRate)}%
           </span>
         </div>
         <div className="flex h-2 w-full rounded-full overflow-hidden bg-line">
           <div
             className="bg-emerald-500 transition-all duration-500"
-            style={{ width: `${(lifecycleStats.resolved / (totalFindings || 1)) * 100}%` }}
+            style={{ width: `${(lifecycleStats.resolved / (totalFindings || 1)) * 100 * motion}%` }}
             title={`Corregidos: ${lifecycleStats.resolved}`}
           />
           <div
             className="bg-amber-500 transition-all duration-500"
-            style={{ width: `${(lifecycleStats.inProgress / (totalFindings || 1)) * 100}%` }}
+            style={{ width: `${(lifecycleStats.inProgress / (totalFindings || 1)) * 100 * motion}%` }}
             title={`En tratamiento: ${lifecycleStats.inProgress}`}
           />
           <div
             className="bg-rose-500/80 transition-all duration-500"
-            style={{ width: `${(lifecycleStats.open / (totalFindings || 1)) * 100}%` }}
+            style={{ width: `${(lifecycleStats.open / (totalFindings || 1)) * 100 * motion}%` }}
             title={`Abiertos: ${lifecycleStats.open}`}
           />
         </div>
         <div className="flex items-center justify-between text-[10px] text-muted pt-0.5 font-mono">
-          <span>Abiertos: <strong className="text-rose-400">{lifecycleStats.open}</strong></span>
-          <span>En tratamiento: <strong className="text-amber-400">{lifecycleStats.inProgress}</strong></span>
-          <span>Corregidos: <strong className="text-emerald-400">{lifecycleStats.resolved}</strong></span>
+          <span>Abiertos: <strong className="text-rose-400">{count(lifecycleStats.open)}</strong></span>
+          <span>En tratamiento: <strong className="text-amber-400">{count(lifecycleStats.inProgress)}</strong></span>
+          <span>Corregidos: <strong className="text-emerald-400">{count(lifecycleStats.resolved)}</strong></span>
         </div>
       </div>
     </div>

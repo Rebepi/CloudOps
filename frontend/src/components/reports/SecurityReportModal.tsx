@@ -1,21 +1,31 @@
 import { FileText, Printer, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { useEffect } from 'react';
 import type { ComparacionEvaluacion, EvaluacionSeguridad, Proyecto } from '../../types/cloud';
 import { printElement } from '../../lib/print';
 import { SecurityReportDocument } from './SecurityReportDocument';
+import { PaginatedSecurityReport } from './PaginatedSecurityReport';
+import { assessmentLabel } from '../../lib/assessmentLabels';
 
 export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, comparacion }: {
   abierto: boolean; onCerrar: () => void; proyecto: Proyecto; evaluacion: EvaluacionSeguridad; comparacion: ComparacionEvaluacion | null;
 }) {
+  useEffect(() => {
+    if (!abierto) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onCerrar(); };
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [abierto, onCerrar]);
   if (!abierto) return null;
 
-  const assessmentTypeText =
-    evaluacion.assessmentType === 'code'
-      ? 'Código / ZIP'
-      : evaluacion.assessmentType === 'full'
-      ? 'Evaluación Completa (AWS + Código)'
-      : 'Auditoría Cuenta AWS';
+  const assessmentTypeText = assessmentLabel(evaluacion, proyecto);
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -24,7 +34,7 @@ export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, c
         if (e.target === e.currentTarget) onCerrar();
       }}
     >
-      <div className="relative flex flex-col w-full max-w-4xl max-h-[86vh] rounded-2xl sm:rounded-3xl bg-slate-900 border border-slate-700/70 shadow-2xl shadow-black/60 overflow-hidden">
+      <div className="relative flex flex-col w-full max-w-5xl h-[calc(100dvh-4rem)] max-h-[calc(100dvh-4rem)] rounded-2xl sm:rounded-3xl bg-slate-900 border border-slate-700/70 shadow-2xl shadow-black/60 overflow-hidden">
         {/* Modal Top Bar */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/95 px-5 py-3.5 sm:px-6 sm:py-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -46,7 +56,8 @@ export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, c
 
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => printElement('security-report-document')}
+              onClick={() => printElement('security-report-pages')}
+              aria-label="Imprimir o guardar informe en PDF"
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 transition-all cursor-pointer"
             >
               <Printer size={15} />
@@ -63,13 +74,13 @@ export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, c
         </div>
 
         {/* Modal Body / Paper Sheet Preview */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-8 bg-slate-950/70 scrollbar-thin">
-          <div className="mx-auto max-w-3xl rounded-xl bg-white p-6 sm:p-10 md:p-12 shadow-2xl ring-1 ring-black/10 text-slate-900">
+        <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6 md:p-8 bg-slate-950/70 scrollbar-thin">
+          <PaginatedSecurityReport>
             <SecurityReportDocument proyecto={proyecto} evaluacion={evaluacion} comparacion={comparacion} />
-          </div>
+          </PaginatedSecurityReport>
         </div>
       </div>
-    </div>
+    </div>, document.body
   );
 }
 

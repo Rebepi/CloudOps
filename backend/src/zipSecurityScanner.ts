@@ -38,6 +38,25 @@ export type StaticCoverageDomain = {
   detail: string;
 };
 
+export type RepositoryLayer = 'backend' | 'frontend' | 'infrastructure' | 'dependencies' | 'shared';
+
+export type RepositoryEntry = {
+  path: string;
+  kind: 'file' | 'directory';
+  sizeBytes: number;
+  analysisStatus: 'analyzed' | 'unsupported' | 'text-limit' | 'binary' | 'directory';
+};
+
+export type LayerBreakdown = {
+  id: RepositoryLayer;
+  label: string;
+  candidateFiles: number;
+  analyzedFiles: number;
+  readCoverage: number;
+  findings: number;
+  counts: Record<CodeSeverity, number>;
+};
+
 export type ZipScanOptions = {
   maxEntries?: number;
   maxUncompressedBytes?: number;
@@ -75,6 +94,20 @@ export function validateArchivePath(fileName: string) {
 function isTextCandidate(fileName: string) {
   const lower = basename(fileName).toLowerCase();
   return TEXT_EXTENSIONS.has(extension(fileName)) || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock'].includes(lower);
+}
+
+const dependencyManifestPattern = /^(?:package-lock\.json|composer\.lock|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/;
+
+export function classifyRepositoryPath(fileName: string, category?: CodeFinding['category']): RepositoryLayer {
+  const normalized = fileName.replace(/\\/g, '/').toLowerCase();
+  const lowerBase = basename(normalized).toLowerCase();
+  if (category === 'dependency' || dependencyManifestPattern.test(lowerBase)) return 'dependencies';
+  if (category === 'iac' || ['.tf', '.tfvars'].includes(extension(normalized)) || lowerBase === 'dockerfile'
+    || /(?:docker-)?compose.*\.ya?ml$/.test(lowerBase) || /(?:cloudformation|template)\.ya?ml$/.test(lowerBase)
+    || normalized.includes('/.github/workflows/')) return 'infrastructure';
+  if (/(?:^|\/)backend(?:\/|$)/.test(normalized)) return 'backend';
+  if (/(?:^|\/)frontend(?:\/|$)/.test(normalized)) return 'frontend';
+  return 'shared';
 }
 
 function safeLine(value: string) {
@@ -295,7 +328,10 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
   const findings: CodeFinding[] = [];
   const dependencies: Dependency[] = [];
   const extensions: Record<string, number> = {};
+  const repositoryEntries: RepositoryEntry[] = [];
   const components = new Map<string, DetectedArchitectureComponent>();
+  const layerFiles = Object.fromEntries((['backend', 'frontend', 'infrastructure', 'dependencies', 'shared'] as RepositoryLayer[])
+    .map((layer) => [layer, { candidateFiles: 0, analyzedFiles: 0 }])) as Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>;
   const domainFiles: Record<StaticCoverageDomain['id'], Set<string>> = {
     secrets: new Set(),
     'source-code': new Set(),
@@ -308,7 +344,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number> }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[] }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -324,6 +360,8 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
           findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions,
           components: [...components.values()],
           domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
+          layerFiles,
+          repositoryEntries,
         });
       }
     });
@@ -339,21 +377,36 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
         if (entry.compressedSize > 0 && entry.uncompressedSize / entry.compressedSize > 150) throw new Error(`Relación de compresión sospechosa en: ${safeLine(entry.fileName)}`);
         const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
         if ((unixMode & 0o170000) === 0o120000) throw new Error(`El ZIP contiene un enlace simbólico no admitido: ${safeLine(entry.fileName)}`);
-        if (/\/$/.test(entry.fileName)) return zip.readEntry();
+        const directory = /\/$/.test(entry.fileName);
+        const inventoryEntry: RepositoryEntry = {
+          path: entry.fileName.replace(/\\/g, '/'), kind: directory ? 'directory' : 'file', sizeBytes: entry.uncompressedSize,
+          analysisStatus: directory ? 'directory' : 'unsupported',
+        };
+        repositoryEntries.push(inventoryEntry);
+        if (directory) return zip.readEntry();
         const ext = extension(entry.fileName) || '[sin extensión]';
         extensions[ext] = (extensions[ext] ?? 0) + 1;
-        if (isTextCandidate(entry.fileName) && textBytes + entry.uncompressedSize <= options.maxTextBytes) {
+        if (isTextCandidate(entry.fileName)) {
+          const layer = classifyRepositoryPath(entry.fileName);
+          layerFiles[layer].candidateFiles += 1;
+          if (textBytes + entry.uncompressedSize > options.maxTextBytes) {
+            inventoryEntry.analysisStatus = 'text-limit';
+            return zip.readEntry();
+          }
           const buffer = await readEntry(zip, entry);
+          inventoryEntry.analysisStatus = 'binary';
           if (!buffer.subarray(0, 4096).includes(0)) {
+            inventoryEntry.analysisStatus = 'analyzed';
             textBytes += buffer.length;
             filesAnalyzed += 1;
+            layerFiles[layer].analyzedFiles += 1;
             const text = buffer.toString('utf8');
             const normalized = entry.fileName.replace(/\\/g, '/').toLowerCase();
             const lowerBase = basename(entry.fileName).toLowerCase();
             const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs']);
             domainFiles.secrets.add(entry.fileName);
             if (sourceExtensions.has(extension(entry.fileName))) domainFiles['source-code'].add(entry.fileName);
-            if (/^(?:package-lock\.json|composer\.lock|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/.test(lowerBase)) domainFiles.dependencies.add(entry.fileName);
+            if (dependencyManifestPattern.test(lowerBase)) domainFiles.dependencies.add(entry.fileName);
             if (['.tf', '.tfvars'].includes(extension(entry.fileName)) || /(?:cloudformation|template)\.ya?ml$/.test(lowerBase)) domainFiles.iac.add(entry.fileName);
             if (lowerBase === 'dockerfile' || /(?:docker-)?compose.*\.ya?ml$/.test(lowerBase)) domainFiles.containers.add(entry.fileName);
             if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(extension(entry.fileName)) || normalized.includes('/config/')) domainFiles.configuration.add(entry.fileName);
@@ -477,6 +530,19 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' ? 0.5 : 0), 0);
   const totalControls = coverageMatrix.length;
   const coverage = Math.round(observedControls / totalControls * 100);
+  const layerLabels: Record<RepositoryLayer, string> = {
+    backend: 'Backend', frontend: 'Frontend', infrastructure: 'Infraestructura / Compose', dependencies: 'Dependencias', shared: 'Compartido / raíz',
+  };
+  const layerBreakdown: LayerBreakdown[] = (Object.keys(layerLabels) as RepositoryLayer[]).map((id) => {
+    const layerFindings = findings.filter((item) => classifyRepositoryPath(item.resource ?? '', item.category) === id);
+    const layerCounts = layerFindings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
+    const files = archive.layerFiles[id];
+    return {
+      id, label: layerLabels[id], candidateFiles: files.candidateFiles, analyzedFiles: files.analyzedFiles,
+      readCoverage: files.candidateFiles ? Math.round(files.analyzedFiles / files.candidateFiles * 100) : 0,
+      findings: layerFindings.length, counts: layerCounts,
+    };
+  });
   return {
     score, coverage, confidence: coverage === 100 ? 'high' as const : coverage >= 75 ? 'medium' as const : 'low' as const,
     findings,
@@ -491,6 +557,8 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         components: archive.components,
         componentCount: archive.components.length,
       },
+      layerBreakdown,
+      repositoryInventory: { entries: archive.repositoryEntries, complete: true },
       coverageMatrix,
       rulesExecuted: RULES.length,
       scoreScope: 'Riesgo estático observado en los archivos cubiertos; no representa por sí solo la seguridad total del sistema desplegado.',

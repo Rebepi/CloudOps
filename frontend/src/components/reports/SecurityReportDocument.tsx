@@ -1,17 +1,19 @@
 import type { ComparacionEvaluacion, EvaluacionSeguridad, HallazgoSeguridad, Proyecto } from '../../types/cloud';
+import type { CSSProperties } from 'react';
 import { Logo } from '../ui/Logo';
 import { detectAwsService } from '../security/findingServiceHelper';
+import { assessmentLabel } from '../../lib/assessmentLabels';
 
 const severityOrder: HallazgoSeguridad['severity'][] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const severityLabel: Record<HallazgoSeguridad['severity'], string> = {
   CRITICAL: 'Crítico', HIGH: 'Alto', MEDIUM: 'Medio', LOW: 'Bajo', INFORMATIONAL: 'Informativo',
 };
-const severityPrintStyle: Record<HallazgoSeguridad['severity'], string> = {
-  CRITICAL: 'background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; font-weight: 700;',
-  HIGH: 'background-color: #ffedd5; color: #9a3412; border: 1px solid #fb923c; font-weight: 700;',
-  MEDIUM: 'background-color: #fef3c7; color: #92400e; border: 1px solid #fcd34d;',
-  LOW: 'background-color: #e0f2fe; color: #075985; border: 1px solid #7dd3fc;',
-  INFORMATIONAL: 'background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;',
+const severityPrintStyle: Record<HallazgoSeguridad['severity'], CSSProperties> = {
+  CRITICAL: { backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #f87171', fontWeight: 700 },
+  HIGH: { backgroundColor: '#ffedd5', color: '#9a3412', border: '1px solid #fb923c', fontWeight: 700 },
+  MEDIUM: { backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' },
+  LOW: { backgroundColor: '#e0f2fe', color: '#075985', border: '1px solid #7dd3fc' },
+  INFORMATIONAL: { backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' },
 };
 const lifecycleLabel: Record<string, string> = {
   open: 'Abierto', in_progress: 'En tratamiento', resolved: 'Corregido', false_positive: 'Falso positivo', risk_accepted: 'Riesgo aceptado',
@@ -52,7 +54,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
     <section className={seccion}>
       <h2 className={titulo}>1. Alcance y limitaciones</h2>
       <p className="mt-1 text-[11px] leading-relaxed text-slate-700">
-        Tipo de análisis: <strong>{evaluacion.assessmentType === 'code' ? 'código/dependencias (ZIP o repositorio)' : evaluacion.assessmentType === 'aws-account' ? 'cuenta AWS (IAM, CloudTrail, Config, Security Hub, Inspector)' : 'integral (AWS + código)'}</strong>.
+        Tipo de análisis: <strong>{assessmentLabel(evaluacion, proyecto)}</strong>.
         Cobertura observada: <strong>{evaluacion.coverage}%</strong> con confianza <strong>{evaluacion.confidence}</strong>. Metodología: {evaluacion.summary?.methodology ?? 'Controles CloudOps, CIS AWS Foundations Benchmark, AWS FSBP'}.
         Este informe es una evaluación técnica priorizada de postura de seguridad; no constituye una certificación formal ni sustituye un pentest manual.
       </p>
@@ -60,7 +62,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
 
     <section className={seccion}>
       <h2 className={titulo}>2. Resumen ejecutivo de seguridad</h2>
-      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+      <div className="security-report-summary-grid mt-2 grid grid-cols-4 gap-3 text-[11px]">
         <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
           <span className="block text-[10px] font-semibold text-slate-500 uppercase">Puntaje global</span>
           <strong className="text-lg text-slate-900">{evaluacion.score ?? '—'}/100</strong>
@@ -112,7 +114,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
               <tr key={f.id} className="hover:bg-slate-50/50" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                 <td className={cell}>
                   <span
-                    style={{ display: 'inline-block', padding: '1px 5px', borderRadius: '4px', fontSize: '8.5px', ...JSON.parse(`{${severityPrintStyle[f.severity].replace(/;\s*$/, '').split(';').map(p => `"${p.split(':')[0].trim()}":"${p.split(':')[1].trim()}"`).join(',')}}`) }}
+                    style={{ display: 'inline-block', padding: '1px 5px', borderRadius: '4px', fontSize: '8.5px', ...severityPrintStyle[f.severity] }}
                   >
                     {severityLabel[f.severity]}
                   </span>

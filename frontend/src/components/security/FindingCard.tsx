@@ -15,6 +15,7 @@ import {
 import { api } from '../../lib/api';
 import type { EstadoHallazgo, EventoHallazgo, HallazgoSeguridad } from '../../types/cloud';
 import { detectAwsService } from './findingServiceHelper';
+import { detectFindingLayer, findingLayerLabels, isRepositoryFinding } from './findingLayerHelper';
 
 const severityStyle: Record<HallazgoSeguridad['severity'], string> = {
   CRITICAL: 'bg-rose-500/15 text-rose-500 border-rose-500/30 ring-1 ring-rose-500/20 font-black',
@@ -71,6 +72,7 @@ export function FindingCard({
   });
 
   const service = detectAwsService(finding);
+  const layer = detectFindingLayer(finding);
   const isCritical = finding.severity === 'CRITICAL';
   const isHigh = finding.severity === 'HIGH';
 
@@ -143,6 +145,12 @@ export function FindingCard({
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: service.dotColor }} />
                 {service.shortName}
               </span>
+
+              {isRepositoryFinding(finding) && (
+                <span className="rounded-md border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-bold text-violet-400">
+                  {findingLayerLabels[layer]}
+                </span>
+              )}
 
               {/* Source tag */}
               <span className="text-[10px] text-muted">

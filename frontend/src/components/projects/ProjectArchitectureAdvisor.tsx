@@ -1,10 +1,14 @@
-import { AlertTriangle, Boxes, CheckCircle2, FileCode2, GitCommit, Layers3, SearchX, ShieldAlert } from 'lucide-react';
+import { Boxes, Layers3, LoaderCircle, ScanSearch, SearchX } from 'lucide-react';
 import type { EvaluacionSeguridad, HallazgoSeguridad, Proyecto } from '../../types/cloud';
 import { Card } from '../ui/Card';
+import { RepositoryTree } from './RepositoryTree';
+import { AssessmentStatistics } from './AssessmentStatistics';
+import { AssessmentOverview } from './AssessmentOverview';
 
 type EvidenceView = 'overview' | 'architecture' | 'coverage';
 type ArchitectureComponent = { id: string; name: string; category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration'; confidence: 'high' | 'medium'; evidence: string[] };
 type CoverageDomain = { id: string; label: string; status: 'measured' | 'partial' | 'not-detected'; files: number; detail: string };
+type LayerBreakdown = { id: 'backend' | 'frontend' | 'infrastructure' | 'dependencies' | 'shared'; label: string; candidateFiles: number; analyzedFiles: number; readCoverage: number; findings: number; counts: Record<string, number> };
 type PlatformCandidate = { service: string; purpose: string; basedOn: string; evidence: string[] };
 
 const categoryLabels: Record<ArchitectureComponent['category'], string> = {
@@ -29,6 +33,15 @@ function coverageFrom(assessment: EvaluacionSeguridad | null) {
   return raw.filter((domain): domain is CoverageDomain => isRecord(domain)
     && typeof domain.id === 'string' && typeof domain.label === 'string'
     && typeof domain.status === 'string' && typeof domain.files === 'number');
+}
+
+function layersFrom(assessment: EvaluacionSeguridad | null) {
+  const raw = assessment?.summary.layerBreakdown;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((layer): layer is LayerBreakdown => isRecord(layer)
+    && typeof layer.id === 'string' && typeof layer.label === 'string'
+    && typeof layer.candidateFiles === 'number' && typeof layer.analyzedFiles === 'number'
+    && typeof layer.readCoverage === 'number' && typeof layer.findings === 'number');
 }
 
 function isCodeAssessment(assessment: EvaluacionSeguridad | null) {
@@ -73,9 +86,12 @@ function AwsCoverage({ assessment }: { assessment: EvaluacionSeguridad }) {
     { name: 'AWS Config', available: summary.configAvailable === true, detail: summary.configAvailable ? `${summary.configRules ?? 0} regla(s) y ${summary.configRecorders ?? 0} recorder(s)` : summary.configError ?? 'No disponible' },
     { name: 'Amazon Inspector', available: summary.inspectorAvailable === true && summary.inspectorStatus !== 'DISABLED', detail: summary.inspectorStatus === 'DISABLED' ? 'Servicio deshabilitado en la cuenta/región' : summary.inspectorAvailable ? `${summary.inspectorCoveredResources ?? 0} recurso(s) cubiertos` : summary.inspectorError ?? 'No disponible' },
   ];
-  return <Card><div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-base font-black text-ink">Cobertura AWS verificada</h2><p className="mt-1 text-xs text-muted">Solo se marca como medido lo que respondió mediante las APIs de solo lectura de la cuenta y región configuradas.</p></div><span className="w-fit rounded-full border border-blue-500/25 bg-blue-500/10 px-3 py-1 text-[10px] font-bold text-blue-400">{summary.observedControls ?? 0} de {summary.totalControls ?? 0} controles observados</span></div>
-    <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">{services.map((service) => <article key={service.name} className="rounded-2xl border border-line bg-canvas/50 p-4"><div className="flex items-center justify-between gap-3"><strong className="text-xs text-ink">{service.name}</strong><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${service.available ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-400'}`}>{service.available ? 'Medido' : 'No medido'}</span></div><p className="mt-2 text-[11px] leading-relaxed text-muted">{service.detail}</p></article>)}</div>
-    <p className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[11px] leading-relaxed text-muted">Un servicio sin recursos devuelve cero elementos; un servicio sin permisos o deshabilitado aparece como no medido y reduce la cobertura. La ausencia de hallazgos no se convierte automáticamente en “seguro”.</p>
+  return <Card>
+    <AssessmentStatistics assessment={assessment} />
+    <div className="mt-5 border-t border-line pt-5"><h3 className="text-sm font-bold text-ink">Fuentes AWS consultadas</h3>
+      <div className="mt-3 divide-y divide-line">{services.map((service) => <div key={service.name} className="grid gap-2 py-3 text-xs sm:grid-cols-[150px_90px_1fr]"><strong className="text-ink">{service.name}</strong><span className={service.available ? 'text-blue-400' : 'text-amber-400'}>{service.available ? 'Medido' : 'No medido'}</span><span className="text-muted">{service.detail}</span></div>)}</div>
+    </div>
+    <p className="mt-4 border-t border-line pt-4 text-[11px] text-muted">Las fuentes sin permisos o deshabilitadas reducen la cobertura. Cero recursos observados no demuestra que el sistema sea seguro.</p>
   </Card>;
 }
 
@@ -84,7 +100,7 @@ function FindingPriority({ findings }: { findings: HallazgoSeguridad[] }) {
   const prioritized = [...findings].filter((finding) => ['open', 'in_progress'].includes(finding.status))
     .sort((a, b) => order.indexOf(a.severity) - order.indexOf(b.severity)).slice(0, 5);
   if (!prioritized.length) return <p className="text-xs text-muted">No hay remediaciones abiertas en esta evaluación.</p>;
-  return <div className="space-y-2">{prioritized.map((finding, index) => <div key={finding.id} className="rounded-xl border border-line bg-canvas/60 p-3">
+  return <div className="divide-y divide-line">{prioritized.map((finding, index) => <div key={finding.id} className="py-3">
     <div className="flex items-start gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500/10 text-[10px] font-black text-rose-400">{index + 1}</span><div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2"><strong className="text-xs text-ink">{finding.title}</strong><span className="text-[9px] font-bold text-rose-400">{finding.severity}</span></div>
       <p className="mt-1 text-[11px] text-muted">{finding.recommendation}</p>
@@ -93,45 +109,52 @@ function FindingPriority({ findings }: { findings: HallazgoSeguridad[] }) {
   </div>)}</div>;
 }
 
-export function ProjectArchitectureAdvisor({ project, assessment, findings, view }: { project: Proyecto; assessment: EvaluacionSeguridad | null; findings: HallazgoSeguridad[]; view: EvidenceView }) {
-  if (assessment?.status === 'completed' && assessment.assessmentType === 'aws-account') {
+export function ProjectArchitectureAdvisor({ project, assessment, findings, view, processing = false, history = [] }: { project: Proyecto; assessment: EvaluacionSeguridad | null; findings: HallazgoSeguridad[]; view: EvidenceView; processing?: boolean; history?: EvaluacionSeguridad[] }) {
+  if (processing || assessment?.status === 'pending' || assessment?.status === 'running') return <Card className="py-12" >
+    <div role="status" aria-live="polite" className="mx-auto max-w-xl text-center"><div className="relative mx-auto mb-5 w-fit"><ScanSearch size={38} className="text-blue-400" /><LoaderCircle size={18} className="absolute -bottom-1 -right-3 animate-spin text-blue-500" /></div><h2 className="text-base font-bold text-ink">Evaluación en curso</h2><p className="mt-2 text-sm text-muted">Estamos procesando la evidencia de {project.name}. Los resultados, la arquitectura y la cobertura aparecerán al finalizar.</p><div role="progressbar" aria-label="Procesando evaluación" className="mt-6 h-1.5 overflow-hidden rounded-full bg-blue-500/10"><div className="h-full w-full animate-pulse bg-blue-500/60" /></div><p className="mt-3 text-[11px] text-muted">{assessment?.status === 'pending' ? 'En cola para iniciar el análisis.' : 'Procesando comprobaciones. Esta vista se actualiza automáticamente.'}</p></div>
+  </Card>;
+  if (assessment?.status === 'failed') return <Card><h2 className="font-bold text-rose-400">No se pudo completar la evaluación</h2><p className="mt-2 text-xs text-muted">{assessment.errorMessage ?? 'Revisa la conexión y vuelve a intentarlo desde Nueva evaluación.'}</p></Card>;
+  if (assessment?.status === 'completed' && assessment.assessmentType === 'aws-account' && view !== 'overview') {
     return view === 'architecture' ? <EmptyEvidence project={project} /> : <AwsCoverage assessment={assessment} />;
   }
-  if (!isCodeAssessment(assessment)) return <EmptyEvidence project={project} />;
+  if (!isCodeAssessment(assessment) && assessment?.assessmentType !== 'aws-account') return <EmptyEvidence project={project} />;
   const components = architectureFrom(assessment);
   const coverage = coverageFrom(assessment);
+  const layers = layersFrom(assessment).filter((layer) => layer.candidateFiles > 0 || layer.findings > 0);
 
   if (view === 'overview') {
-    const critical = findings.filter((finding) => finding.severity === 'CRITICAL').length;
-    const high = findings.filter((finding) => finding.severity === 'HIGH').length;
-    return <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-      <Card className="xl:col-span-2"><div className="flex items-center gap-2 border-b border-line pb-3"><ShieldAlert size={17} className="text-rose-500" /><h2 className="text-sm font-bold text-ink">Prioridad de remediación medida</h2></div><div className="mt-4"><FindingPriority findings={findings} /></div></Card>
-      <div className="space-y-4"><Card><h2 className="text-sm font-bold text-ink">Alcance de la evidencia</h2><dl className="mt-3 space-y-2 text-xs">
-        <div className="flex justify-between"><dt className="text-muted">Archivos analizados</dt><dd className="font-bold text-ink">{assessment?.summary.filesAnalyzed ?? 0}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted">Dependencias inventariadas</dt><dd className="font-bold text-ink">{assessment?.summary.dependencyCount ?? 0}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted">Componentes evidenciados</dt><dd className="font-bold text-ink">{components.length}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted">Críticos / altos</dt><dd className="font-bold text-rose-500">{critical} / {high}</dd></div>
-      </dl></Card><Card><div className="flex items-center gap-2"><GitCommit size={15} className="text-blue-400" /><h2 className="text-sm font-bold text-ink">Artefacto evaluado</h2></div><p className="mt-2 break-all text-[11px] text-muted">{assessment?.artifactName ?? 'ZIP cargado'}</p>{assessment?.artifactSha256 && <p className="mt-2 break-all font-mono text-[9px] text-muted">SHA-256: {assessment.artifactSha256}</p>}<p className="mt-3 text-[10px] leading-relaxed text-amber-400">El puntaje representa únicamente riesgo estático observado dentro de la cobertura indicada.</p></Card></div>
-    </div>;
+    return <Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0"><AssessmentOverview key={assessment!.id} assessment={assessment!} history={history} /></div>
+        <div className="border-t border-line pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0"><h2 className="mb-4 text-sm font-bold text-ink">Prioridad de remediación</h2><FindingPriority findings={findings} />
+          <div className="mt-5 border-t border-line pt-4 text-[11px] text-muted"><p className="font-semibold text-ink">Artefacto evaluado</p><p className="mt-1 break-all">{assessment?.artifactName ?? 'ZIP cargado'}</p><p className="mt-2">{components.length} componentes detectados. El puntaje corresponde al riesgo observado dentro de la cobertura indicada.</p></div>
+        </div>
+      </div>
+    </Card>;
   }
 
   if (view === 'architecture') {
     const groups = Object.entries(categoryLabels).map(([category, label]) => ({ category, label, components: components.filter((component) => component.category === category) })).filter((group) => group.components.length);
     const candidates = platformCandidates(components);
     return <Card><div className="flex items-start gap-3 border-b border-line pb-4"><Layers3 size={19} className="mt-0.5 text-blue-500" /><div><h2 className="text-base font-black text-ink">Arquitectura detectada en el repositorio</h2><p className="mt-1 text-xs text-muted">Cada componente incluye los archivos que prueban su presencia. No se dibujan conexiones que el análisis no pueda demostrar.</p></div></div>
-      {groups.length ? <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">{groups.map((group) => <section key={group.category} className="rounded-2xl border border-line bg-canvas/50 p-4"><div className="flex items-center gap-2"><Boxes size={15} className="text-blue-400" /><h3 className="text-xs font-bold uppercase tracking-wider text-ink">{group.label}</h3></div><div className="mt-3 space-y-2">{group.components.map((component) => <article key={component.id} className="rounded-xl border border-line bg-card p-3"><div className="flex items-center justify-between gap-2"><strong className="text-xs text-ink">{component.name}</strong><span className="text-[9px] font-bold text-emerald-400">Evidencia {component.confidence === 'high' ? 'alta' : 'media'}</span></div><div className="mt-2 space-y-1">{component.evidence.map((file) => <p key={file} className="truncate font-mono text-[9px] text-muted" title={file}>{file}</p>)}</div></article>)}</div></section>)}</div>
-        : <div className="py-10 text-center"><FileCode2 size={30} className="mx-auto text-muted" /><p className="mt-2 text-xs text-muted">No se identificaron componentes mediante las firmas actuales.</p></div>}
-      {candidates.length > 0 && <section className="mt-6 border-t border-line pt-5"><h3 className="text-sm font-bold text-ink">Servicios AWS candidatos basados en evidencia</h3><p className="mt-1 text-[11px] text-muted">Son opciones de implementación derivadas de tecnologías detectadas, no recursos confirmados como desplegados.</p><div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">{candidates.map((candidate) => <article key={candidate.service} className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4"><strong className="text-xs text-blue-400">{candidate.service}</strong><p className="mt-1.5 text-[11px] leading-relaxed text-muted">{candidate.purpose}</p><div className="mt-2 border-t border-blue-500/10 pt-2"><span className="text-[9px] font-bold uppercase tracking-wider text-muted">Derivado de {candidate.basedOn}</span>{candidate.evidence.slice(0, 2).map((file) => <p key={file} className="mt-1 truncate font-mono text-[9px] text-muted" title={file}>{file}</p>)}</div></article>)}</div></section>}
+      {assessment?.summary.repositoryInventory ? <RepositoryTree key={assessment.id} entries={assessment.summary.repositoryInventory.entries} complete={assessment.summary.repositoryInventory.complete} /> : <p className="mt-5 rounded-xl border border-line bg-canvas/50 p-4 text-xs text-muted">Ejecuta nuevamente el análisis del código para generar el árbol completo de carpetas, módulos y archivos.</p>}
+      <div className="mt-5 grid items-start gap-5 border-t border-line pt-4 lg:grid-cols-2">
+        <details><summary className="cursor-pointer text-sm font-bold text-ink">Tecnologías detectadas ({components.length})</summary>
+          <div className="mt-3 max-h-[420px] overflow-y-auto pr-2"><div className="grid gap-x-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">{groups.map((group) => <section key={group.category} className="min-w-0 border-b border-line py-3"><h3 className="flex items-center gap-2 text-xs font-bold text-blue-400"><Boxes size={14} />{group.label}</h3>{group.components.map((component) => <div key={component.id} className="mt-3 min-w-0"><div className="flex items-center justify-between gap-2"><strong className="text-xs text-ink">{component.name}</strong><span className="text-[10px] text-muted">{component.confidence === 'high' ? 'Alta' : 'Media'}</span></div><details className="mt-1"><summary className="cursor-pointer text-[10px] text-muted">{component.evidence.length} archivos de evidencia</summary><div className="mt-2 space-y-1">{component.evidence.map((file) => <p key={file} className="break-all font-mono text-[10px] text-muted">{file}</p>)}</div></details></div>)}</section>)}</div></div>
+          {!groups.length && <p className="mt-3 text-xs text-muted">No se identificaron componentes mediante las firmas actuales.</p>}
+        </details>
+        {candidates.length > 0 && <details><summary className="cursor-pointer text-sm font-bold text-ink">Servicios AWS sugeridos ({candidates.length})</summary><p className="mt-2 text-[11px] text-muted">Opciones derivadas de tecnologías detectadas; valida capacidad, costos y operación.</p><div className="mt-3 max-h-[420px] divide-y divide-line overflow-y-auto pr-2">{candidates.map((candidate) => <div key={candidate.service} className="py-3"><strong className="text-xs text-blue-400">{candidate.service}</strong><p className="mt-1 text-[11px] leading-relaxed text-muted">{candidate.purpose}</p><details className="mt-2"><summary className="cursor-pointer text-[10px] text-muted">Evidencia: {candidate.basedOn}</summary><p className="mt-1 break-all font-mono text-[10px] text-muted">{candidate.evidence[0]}</p></details></div>)}</div></details>}
+      </div>
     </Card>;
   }
 
   const measured = coverage.filter((domain) => domain.status === 'measured').length;
-  return <Card><div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-base font-black text-ink">Cobertura verificable</h2><p className="mt-1 text-xs text-muted">Un dominio no detectado no se considera seguro: significa que no hubo evidencia suficiente para medirlo.</p></div><span className="w-fit rounded-full border border-blue-500/25 bg-blue-500/10 px-3 py-1 text-[10px] font-bold text-blue-400">{measured} de {coverage.length} dominios medidos</span></div>
-    <div className="mt-5 space-y-2.5">{coverage.map((domain) => <article key={domain.id} className="grid grid-cols-[auto_1fr] gap-3 rounded-2xl border border-line bg-canvas/50 p-4 sm:grid-cols-[auto_1fr_auto]">
-      {domain.status === 'measured' ? <CheckCircle2 size={18} className="text-emerald-500" /> : domain.status === 'partial' ? <AlertTriangle size={18} className="text-amber-500" /> : <SearchX size={18} className="text-muted" />}
-      <div><h3 className="text-xs font-bold text-ink">{domain.label}</h3><p className="mt-1 text-[11px] leading-relaxed text-muted">{domain.detail}</p></div>
-      <div className="col-start-2 flex items-center gap-2 sm:col-start-auto sm:justify-end"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${domain.status === 'measured' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : domain.status === 'partial' ? 'border-amber-500/25 bg-amber-500/10 text-amber-400' : 'border-line bg-card text-muted'}`}>{statusLabels[domain.status]}</span><span className="text-[10px] text-muted">{domain.files} archivo(s)</span></div>
-    </article>)}</div>
-    <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[11px] leading-relaxed text-muted"><strong className="text-amber-400">Límites:</strong> este análisis no sustituye DAST, pentesting, revisión manual de lógica de negocio, pruebas de autorización ni verificación del entorno desplegado.</div>
+  return <Card>
+    <AssessmentStatistics assessment={assessment!} />
+    <div className="mt-6 border-t border-line pt-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-ink">Dominios de seguridad observados</h3><span className="text-xs text-blue-400">{measured} de {coverage.length} medidos</span></div>
+      <div className="mt-3 divide-y divide-line">{coverage.map((domain) => <div key={domain.id} className="flex items-start justify-between gap-4 py-3"><div><strong className="text-xs text-ink">{domain.label}</strong><p className="mt-1 text-[11px] text-muted">{domain.detail}</p></div><span className="shrink-0 text-[11px] text-blue-400">{statusLabels[domain.status]} · {domain.files} archivos</span></div>)}</div>
+    </div>
+    {!layers.length && <p className="mt-3 text-xs text-muted">Vuelve a ejecutar el análisis para obtener el desglose por capa.</p>}
+    <p className="mt-4 border-t border-line pt-4 text-[11px] text-muted">Un dominio no detectado queda sin medir. El análisis estático se complementa con pruebas de autorización, revisión de lógica de negocio y evaluación del entorno desplegado.</p>
   </Card>;
 }

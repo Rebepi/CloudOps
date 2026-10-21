@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -18,7 +18,6 @@ import {
   Play,
   ScanSearch,
   Search,
-  Settings2,
   ShieldAlert,
   ShieldCheck,
   X,
@@ -37,14 +36,13 @@ import { FindingCard } from '../components/security/FindingCard';
 import { NewFindingsComparison } from '../components/security/NewFindingsComparison';
 import { detectAwsService } from '../components/security/findingServiceHelper';
 import { SecurityAnalyticsWidget } from '../components/security/SecurityAnalyticsWidget';
-import { ManageProjectModal } from '../components/projects/ManageProjectModal';
+import { NewAssessmentModal } from '../components/projects/NewAssessmentModal';
 import { ProjectArchitectureAdvisor } from '../components/projects/ProjectArchitectureAdvisor';
+import { detectFindingLayer, type FindingLayer } from '../components/security/findingLayerHelper';
+import { assessmentLabel } from '../lib/assessmentLabels';
+import { AnimatedNumber } from '../components/ui/AnimatedNumber';
+import { useAnimatedNumber } from '../hooks/useMotionProgress';
 
-function assessmentTypeLabel(type: string) {
-  if (type === 'full') return 'Completa (AWS + código)';
-  if (type === 'code') return 'Código / ZIP';
-  return 'Cuenta AWS';
-}
 
 function getVisiblePages(current: number, total: number, max = 5): number[] {
   if (total <= max) return Array.from({ length: total }, (_, i) => i + 1);
@@ -59,7 +57,6 @@ function getVisiblePages(current: number, total: number, max = 5): number[] {
 
 export default function ProjectDetail() {
   const { projectId = '' } = useParams();
-  const navigate = useNavigate();
   const awsConnection = useAws<AwsConnectionStatus>('/aws/connection');
   const [project, setProject] = useState<Proyecto | null>(null);
   const [assessments, setAssessments] = useState<EvaluacionSeguridad[]>([]);
@@ -71,12 +68,12 @@ export default function ProjectDetail() {
   const [assessmentMenuOpen, setAssessmentMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
-  const [manageModalOpen, setManageModalOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'architecture' | 'coverage' | 'findings'>('overview');
 
   // Filters and Pagination for Hallazgos Normalizados
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical_high' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW_INFO'>('critical_high');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
+  const [layerFilter, setLayerFilter] = useState<FindingLayer>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -85,6 +82,8 @@ export default function ProjectDetail() {
   const loadAssessment = useCallback(async (assessmentId: string) => {
     const result = await api<{ data: EvaluacionSeguridad }>(`/projects/${projectId}/security/assessments/${assessmentId}`);
     setSelected(result.data);
+    setLayerFilter('all');
+    setServiceFilter('all');
     if (result.data.status !== 'completed') {
       setComparison(null);
       return;
@@ -162,6 +161,19 @@ export default function ProjectDetail() {
     }
   };
 
+  const runArchiveAssessment = async (scope: 'code' | 'full', archive: File) => {
+    setRunningRepository(scope);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append('archive', archive);
+      await api(`/projects/${projectId}/security/assessments/${scope}`, { method: 'POST', body });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof TypeError ? 'Se interrumpió la carga del ZIP. Reintenta desde Nueva evaluación; este proyecto se conserva.' : cause instanceof Error ? cause.message : String(cause));
+    } finally { setRunningRepository(false); }
+  };
+
   // Findings list and analysis
   const findings = useMemo(() => selected?.findings ?? [], [selected]);
 
@@ -193,23 +205,11 @@ export default function ProjectDetail() {
 
   // The API score is authoritative. Recalculating it in the browser made old and
   // current methodologies look equivalent and could hide backend score caps.
-  const displayScore = selected?.score ?? null;
+  const evaluationBusy = running || Boolean(runningRepository) || selected?.status === 'pending' || selected?.status === 'running';
+  const displayScore = evaluationBusy ? null : selected?.score ?? null;
+  const animatedCoverage = useAnimatedNumber(evaluationBusy ? 0 : Math.min(100, selected?.coverage ?? 0), selected?.id ?? 'none');
 
-  // Project lifecycle actions: Archive & Delete
-  const handleArchiveProject = async () => {
-    if (!project) return;
-    const nextStatus = project.status === 'archived' ? 'active' : 'archived';
-    const updated = await api<{ data: Proyecto }>(`/projects/${projectId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    setProject(updated.data);
-  };
 
-  const handleDeleteProject = async () => {
-    await api(`/projects/${projectId}`, { method: 'DELETE' });
-    navigate('/projects');
-  };
 
   // Count severities
   const severityCounts = useMemo(() => {
@@ -224,6 +224,10 @@ export default function ProjectDetail() {
 
   const criticalHighTotal = severityCounts.CRITICAL + severityCounts.HIGH;
   const lowInfoTotal = severityCounts.LOW + severityCounts.INFORMATIONAL;
+  const layerCounts = useMemo(() => findings.reduce<Record<Exclude<FindingLayer, 'all'>, number>>((counts, finding) => {
+    counts[detectFindingLayer(finding)] += 1;
+    return counts;
+  }, { backend: 0, frontend: 0, infrastructure: 0, dependencies: 0, shared: 0 }), [findings]);
 
   // Filter findings
   const filteredFindings = useMemo(() => {
@@ -236,6 +240,8 @@ export default function ProjectDetail() {
       } else if (severityFilter !== 'all') {
         if (f.severity !== severityFilter) return false;
       }
+
+      if (layerFilter !== 'all' && detectFindingLayer(f) !== layerFilter) return false;
 
       // Service filter with special matching for the 4 core module services
       if (serviceFilter !== 'all') {
@@ -272,7 +278,7 @@ export default function ProjectDetail() {
 
       return true;
     });
-  }, [findings, severityFilter, serviceFilter, statusFilter, searchQuery]);
+  }, [findings, severityFilter, layerFilter, serviceFilter, statusFilter, searchQuery]);
 
   // Pagination calculations
   const totalPages = Math.max(1, Math.ceil(filteredFindings.length / pageSize));
@@ -293,6 +299,11 @@ export default function ProjectDetail() {
     setCurrentPage(1);
   };
 
+  const handleLayerFilter = (layer: FindingLayer) => {
+    setLayerFilter((previous) => previous === layer ? 'all' : layer);
+    setCurrentPage(1);
+  };
+
   const handleStatusFilter = (status: string) => {
     setStatusFilter(status);
     setCurrentPage(1);
@@ -306,6 +317,7 @@ export default function ProjectDetail() {
   const resetAllFilters = () => {
     setSeverityFilter('all');
     setServiceFilter('all');
+    setLayerFilter('all');
     setStatusFilter('all');
     setSearchQuery('');
     setCurrentPage(1);
@@ -380,16 +392,7 @@ export default function ProjectDetail() {
           />
         )}
 
-        {/* Manage Project Modal */}
-        {manageModalOpen && project && (
-          <ManageProjectModal
-            abierto={manageModalOpen}
-            onCerrar={() => setManageModalOpen(false)}
-            proyecto={project}
-            onArchivar={handleArchiveProject}
-            onEliminar={handleDeleteProject}
-          />
-        )}
+
 
         {/* Unified Executive Command Hero */}
         <div className="relative overflow-hidden rounded-3xl border border-line bg-gradient-to-b from-card via-card/95 to-canvas shadow-xl backdrop-blur-xl">
@@ -398,8 +401,8 @@ export default function ProjectDetail() {
           <div className="pointer-events-none absolute -left-24 -bottom-24 h-96 w-96 rounded-full bg-indigo-600/10 blur-3xl" />
 
           {/* Top Header Bar */}
-          <div className="p-6 sm:p-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 pb-4 mb-6">
+          <div className="px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 pb-2 mb-3">
               <Link
                 to="/projects"
                 className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-500 hover:text-blue-400 transition-colors"
@@ -434,19 +437,11 @@ export default function ProjectDetail() {
                   {project.status === 'active' ? 'Proyecto Activo' : project.status === 'archived' ? 'Archivado' : project.status}
                 </span>
 
-                <button
-                  type="button"
-                  onClick={() => setManageModalOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-line bg-canvas hover:bg-card px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted hover:text-ink cursor-pointer transition-colors shadow-sm"
-                  title="Archivar o eliminar proyecto"
-                >
-                  <Settings2 size={12} /> Gestionar
-                </button>
               </div>
             </div>
 
             {/* Main Hero Row: Project Metadata & Action Buttons */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wider">
                   <span className="text-blue-500 font-extrabold">{project.clientName || 'Proyecto Interno'}</span>
@@ -461,7 +456,7 @@ export default function ProjectDetail() {
                   )}
                 </div>
 
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-ink">
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-ink">
                   {project.name}
                 </h1>
 
@@ -488,19 +483,19 @@ export default function ProjectDetail() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex shrink-0 flex-col sm:flex-row lg:flex-col gap-2.5">
+              <div className="flex shrink-0 flex-col sm:flex-row gap-2">
                 <button
                   onClick={() => setAssessmentMenuOpen((open) => !open)}
                   disabled={running || Boolean(runningRepository) || repositoryAssessmentActive}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-all"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-all"
                 >
                   {running || runningRepository || repositoryAssessmentActive ? <LoaderCircle size={15} className="animate-spin" /> : <Play size={15} />}
-                  {repositoryAssessmentActive ? 'Evaluación en curso…' : 'Nueva evaluación'}
+                  {evaluationBusy ? 'Evaluación en curso…' : 'Nueva evaluación'}
                 </button>
                 <button
                   onClick={() => setReportOpen(true)}
                   disabled={!selected || selected.status !== 'completed'}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-canvas/80 px-5 py-3 text-xs font-bold text-ink hover:bg-card hover:border-blue-500/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-all shadow-sm"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-canvas/80 px-4 py-2 text-xs font-bold text-ink hover:bg-card hover:border-blue-500/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-all shadow-sm"
                 >
                   <FileDown size={15} className="text-blue-500" /> Informe PDF
                 </button>
@@ -511,7 +506,7 @@ export default function ProjectDetail() {
           {/* Integrated Executive Metric Strip (Unified 4-Col Dock) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-line/70 bg-canvas/60 backdrop-blur divide-y sm:divide-y-0 sm:divide-x divide-line/60">
             {/* 1. Puntaje */}
-            <div className="p-5 flex flex-col justify-between">
+            <div className="px-4 py-3 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted">{scoreLabel}</span>
                 <ShieldCheck
@@ -527,9 +522,9 @@ export default function ProjectDetail() {
                   }
                 />
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
+              <div className="mt-1 flex items-baseline gap-2">
                 <span
-                  className={`text-3xl font-black ${displayScore == null
+                  className={`text-2xl font-black ${displayScore == null
                     ? 'text-muted'
                     : displayScore >= 85
                       ? 'text-emerald-500'
@@ -538,12 +533,12 @@ export default function ProjectDetail() {
                         : 'text-rose-500'
                     }`}
                 >
-                  {displayScore ?? '—'}/100
+                  {displayScore == null ? '—' : <AnimatedNumber value={displayScore} replayKey={selected?.id} />}/100
                 </span>
               </div>
               <span className="mt-1 text-[11px] text-muted">
                 {displayScore == null
-                  ? 'Sin evaluación'
+                  ? evaluationBusy ? 'Calculando al finalizar el análisis' : 'Sin evaluación'
                   : displayScore >= 85
                     ? 'Postura óptima'
                     : displayScore >= 65
@@ -562,18 +557,18 @@ export default function ProjectDetail() {
             </div>
 
             {/* 2. Cobertura */}
-            <div className="p-5 flex flex-col justify-between">
+            <div className="px-4 py-3 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Cobertura</span>
                 <Activity size={18} className="text-blue-500" />
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-black text-ink">{selected?.coverage ?? 0}%</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-ink">{evaluationBusy ? '—' : <>{animatedCoverage}%</>}</span>
               </div>
               <div className="mt-2 w-full bg-line/60 h-1.5 rounded-full overflow-hidden">
                 <div
                   className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, selected?.coverage ?? 0)}%` }}
+                  style={{ width: `${animatedCoverage}%` }}
                 />
               </div>
               <span className="mt-1 text-[11px] text-muted truncate">
@@ -583,71 +578,64 @@ export default function ProjectDetail() {
 
             {/* 3. Críticos y Altos */}
             <div
-              className={`p-5 flex flex-col justify-between ${criticalHighTotal > 0 ? 'bg-rose-500/5' : ''
+              className={`px-4 py-3 flex flex-col justify-between ${criticalHighTotal > 0 ? 'bg-rose-500/5' : ''
                 }`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Críticos y Altos</span>
                 <AlertTriangle
                   size={18}
-                  className={criticalHighTotal > 0 ? 'text-rose-500' : 'text-emerald-500'}
+                  className={evaluationBusy ? 'text-muted' : criticalHighTotal > 0 ? 'text-rose-500' : 'text-muted'}
                 />
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
+              <div className="mt-1 flex items-baseline gap-2">
                 <span
-                  className={`text-3xl font-black ${criticalHighTotal > 0 ? 'text-rose-500' : 'text-ink'
+                  className={`text-2xl font-black ${criticalHighTotal > 0 ? 'text-rose-500' : 'text-ink'
                     }`}
                 >
-                  {criticalHighTotal}
+                  {evaluationBusy ? '—' : <AnimatedNumber value={criticalHighTotal} replayKey={selected?.id} />}
                 </span>
-                <span className="text-xs text-muted">de {findings.length} total</span>
+                <span className="text-xs text-muted">{evaluationBusy ? 'por determinar' : `de ${findings.length} total`}</span>
               </div>
               <span className="mt-1 text-[11px] text-muted">
-                {criticalHighTotal > 0 ? 'Requieren remediación' : 'Sin hallazgos críticos'}
+                {evaluationBusy ? 'Revisando evidencia…' : criticalHighTotal > 0 ? 'Requieren remediación' : 'Sin hallazgos críticos'}
               </span>
             </div>
 
             {/* 4. Evaluaciones Registradas */}
-            <div className="p-5 flex flex-col justify-between">
+            <div className="px-4 py-3 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Historial</span>
                 <History size={18} className="text-violet-500" />
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-black text-ink">{assessments.length}</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-ink"><AnimatedNumber value={assessments.length} replayKey={selected?.id} /></span>
                 <span className="text-xs text-muted">guardadas</span>
               </div>
               <span className="mt-1 text-[11px] text-muted truncate">
                 {selected?.completedAt
                   ? `Última: ${new Date(selected.completedAt).toLocaleDateString('es-PE')}`
-                  : 'Línea base activa'}
+                  : evaluationBusy ? 'En evaluación' : 'Sin evaluación completada'}
               </span>
             </div>
           </div>
         </div>
 
-        {assessmentMenuOpen && (
-          <Card className="border-blue-500/30">
-            <div className="border-b border-line pb-3"><h2 className="text-sm font-black text-ink">¿Qué quieres evaluar?</h2><p className="mt-1 text-xs text-muted">Cada opción mide un alcance diferente y genera su propio puntaje. No se mezclan automáticamente.</p></div>
-            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
-              <button type="button" disabled={!hasRepo || repositoryAssessmentActive} onClick={() => void runRepositoryAssessment('code')} className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4 text-left hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
-                <div className="flex items-center gap-2"><GitBranch size={16} className="text-violet-400" /><strong className="text-xs text-ink">Código y repositorio</strong></div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted">Descarga el commit actual y mide secretos, SAST, dependencias OSV, Docker, configuración, IaC y arquitectura detectada.</p>
-                <span className="mt-3 block text-[10px] font-bold text-violet-400">No consulta recursos AWS desplegados</span>
-              </button>
-              <button type="button" disabled={running || awsConnection.loading || !awsConnection.data?.readyForAssessment} onClick={() => { setAssessmentMenuOpen(false); void runAwsAssessment(); }} title={awsConnection.data?.recommendation} className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4 text-left hover:bg-sky-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
-                <div className="flex items-center gap-2"><Cloud size={16} className="text-sky-400" /><strong className="text-xs text-ink">Cuenta e infraestructura AWS</strong></div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted">Consulta IAM, CloudTrail, S3, Security Groups, RDS, AWS Config, Security Hub e Inspector con permisos de solo lectura.</p>
-                <span className="mt-3 block text-[10px] font-bold text-sky-400">No inspecciona el código del repositorio</span>
-              </button>
-              <button type="button" disabled={!hasRepo || repositoryAssessmentActive || !awsConnection.data?.readyForAssessment} onClick={() => void runRepositoryAssessment('full')} className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-left hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
-                <div className="flex items-center gap-2"><ShieldCheck size={16} className="text-emerald-400" /><strong className="text-xs text-ink">Evaluación integral</strong></div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted">Combina el commit actual con la postura real de la cuenta AWS y deduplica hallazgos en un resultado único.</p>
-                <span className="mt-3 block text-[10px] font-bold text-emerald-400">Recomendada para una revisión completa</span>
-              </button>
-            </div>
-          </Card>
-        )}
+        {assessmentMenuOpen && <NewAssessmentModal
+          onClose={() => setAssessmentMenuOpen(false)}
+          hasRepo={hasRepo}
+          awsReady={Boolean(awsConnection.data?.readyForAssessment)}
+          awsReason={awsConnection.data?.recommendation}
+          busy={running || Boolean(runningRepository) || repositoryAssessmentActive}
+          onRun={(scope, archive) => {
+            setAssessmentMenuOpen(false);
+            setWorkspaceTab('overview');
+            if (scope === 'aws') void runAwsAssessment();
+            else if (archive) void runArchiveAssessment(scope, archive);
+            else void runRepositoryAssessment(scope);
+          }}
+        />}
+
 
         {error && (
           <div className="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-400">
@@ -669,11 +657,11 @@ export default function ProjectDetail() {
         </nav>
 
         {selected && (
-          <div className="flex flex-col gap-2 rounded-2xl border border-line bg-card px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 px-1 text-xs sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <strong className="text-ink">Resultado visible: {assessmentTypeLabel(selected.assessmentType)}</strong>
+              <strong className="text-ink">Resultado visible: {assessmentLabel(selected, project)}</strong>
               <span className="ml-2 text-muted">
-                {selected.status === 'completed' ? `completado ${new Date(selected.completedAt ?? selected.startedAt).toLocaleString('es-PE')}` : `estado: ${selected.status}`}
+                {selected.status === 'completed' ? `completado ${new Date(selected.completedAt ?? selected.startedAt).toLocaleString('es-PE')}` : selected.status === 'failed' ? 'No completado' : 'Evaluación en curso'}
               </span>
               <p className="mt-1 text-[11px] text-muted">El puntaje, la cobertura y los hallazgos corresponden solamente a esta ejecución.</p>
             </div>
@@ -685,7 +673,7 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {workspaceTab !== 'findings' && <ProjectArchitectureAdvisor project={project} assessment={selected} findings={findings} view={workspaceTab} />}
+        {workspaceTab !== 'findings' && <ProjectArchitectureAdvisor project={project} assessment={selected} findings={findings} view={workspaceTab} processing={evaluationBusy} history={assessments} />}
 
         <div className={workspaceTab === 'findings' ? 'space-y-6' : 'hidden'}>
 
@@ -819,7 +807,31 @@ export default function ProjectDetail() {
                 </select>
               </div>
 
-              {/* Row 2: 4 Core Services Filter Pills */}
+              {selected && ['code', 'full'].includes(selected.assessmentType) && (
+                <div className="flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-2">
+                  <span className="mr-1 text-[10.5px] font-bold uppercase tracking-wider text-muted">Capa:</span>
+                  {([
+                    { id: 'all', label: 'Todo', count: findings.length },
+                    { id: 'backend', label: 'Backend', count: layerCounts.backend },
+                    { id: 'frontend', label: 'Frontend', count: layerCounts.frontend },
+                    { id: 'infrastructure', label: 'Infra / Compose', count: layerCounts.infrastructure },
+                    { id: 'dependencies', label: 'Dependencias', count: layerCounts.dependencies },
+                    ...(layerCounts.shared ? [{ id: 'shared' as const, label: 'Compartido', count: layerCounts.shared }] : []),
+                  ] as Array<{ id: FindingLayer; label: string; count: number }>).map((layer) => (
+                    <button
+                      key={layer.id}
+                      type="button"
+                      onClick={() => handleLayerFilter(layer.id)}
+                      className={`rounded-xl border px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer ${layerFilter === layer.id ? 'border-violet-500 bg-violet-500/20 text-violet-300 font-bold shadow-sm' : 'border-line bg-card text-muted hover:text-ink'}`}
+                    >
+                      {layer.label} ({layer.count})
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* AWS service filters only apply when the selected result contains AWS evidence. */}
+              {selected?.assessmentType !== 'code' && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-line/60">
                 <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted mr-1">
                   Servicio:
@@ -884,6 +896,7 @@ export default function ProjectDetail() {
                   Inspector ({coreServiceCounts['amazon-inspector']})
                 </button>
               </div>
+              )}
 
               {/* Row 3: Severity Filter Pills */}
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -940,7 +953,7 @@ export default function ProjectDetail() {
                   </button>
                 )}
 
-                {(severityFilter !== 'all' || serviceFilter !== 'all' || statusFilter !== 'all' || searchQuery) && (
+                {(severityFilter !== 'all' || layerFilter !== 'all' || serviceFilter !== 'all' || statusFilter !== 'all' || searchQuery) && (
                   <button
                     type="button"
                     onClick={resetAllFilters}
@@ -1113,7 +1126,7 @@ export default function ProjectDetail() {
                                 : 'bg-rose-500'
                             }`}
                           />
-                          {assessmentTypeLabel(assessment.assessmentType)}
+                          {assessmentLabel(assessment, project)}
                         </strong>
                         <span
                           className={`rounded-md px-1.5 py-0.5 text-[10px] font-black ${
