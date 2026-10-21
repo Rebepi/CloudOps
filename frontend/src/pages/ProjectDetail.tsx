@@ -12,8 +12,11 @@ import {
   Filter,
   GitBranch,
   History,
+  Layers3,
+  LayoutDashboard,
   LoaderCircle,
   Play,
+  ScanSearch,
   Search,
   Settings2,
   ShieldAlert,
@@ -35,6 +38,7 @@ import { NewFindingsComparison } from '../components/security/NewFindingsCompari
 import { detectAwsService } from '../components/security/findingServiceHelper';
 import { SecurityAnalyticsWidget } from '../components/security/SecurityAnalyticsWidget';
 import { ManageProjectModal } from '../components/projects/ManageProjectModal';
+import { ProjectArchitectureAdvisor } from '../components/projects/ProjectArchitectureAdvisor';
 
 function assessmentTypeLabel(type: string) {
   if (type === 'full') return 'Completa (AWS + código)';
@@ -63,9 +67,12 @@ export default function ProjectDetail() {
   const [comparison, setComparison] = useState<ComparacionEvaluacion | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [runningRepository, setRunningRepository] = useState<false | 'code' | 'full'>(false);
+  const [assessmentMenuOpen, setAssessmentMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [manageModalOpen, setManageModalOpen] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'architecture' | 'coverage' | 'findings'>('overview');
 
   // Filters and Pagination for Hallazgos Normalizados
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical_high' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW_INFO'>('critical_high');
@@ -78,6 +85,10 @@ export default function ProjectDetail() {
   const loadAssessment = useCallback(async (assessmentId: string) => {
     const result = await api<{ data: EvaluacionSeguridad }>(`/projects/${projectId}/security/assessments/${assessmentId}`);
     setSelected(result.data);
+    if (result.data.status !== 'completed') {
+      setComparison(null);
+      return;
+    }
     try {
       const compared = await api<{ data: ComparacionEvaluacion }>(`/projects/${projectId}/security/assessments/${assessmentId}/comparison`);
       setComparison(compared.data);
@@ -112,6 +123,12 @@ export default function ProjectDetail() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!selected || !['pending', 'running'].includes(selected.status)) return;
+    const timer = window.setInterval(() => { void load(); }, 2500);
+    return () => window.clearInterval(timer);
+  }, [load, selected]);
+
   const runAwsAssessment = async () => {
     setRunning(true);
     setError(null);
@@ -124,6 +141,24 @@ export default function ProjectDetail() {
       await load();
     } finally {
       setRunning(false);
+    }
+  };
+
+  const runRepositoryAssessment = async (scope: 'code' | 'full') => {
+    setRunningRepository(scope);
+    setError(null);
+    try {
+      await api(`/projects/${projectId}/security/assessments/repository`, {
+        method: 'POST',
+        body: JSON.stringify({ ref: project?.repoDefaultBranch || 'main', scope }),
+      });
+      setAssessmentMenuOpen(false);
+      setWorkspaceTab('overview');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunningRepository(false);
     }
   };
 
@@ -156,19 +191,9 @@ export default function ProjectDetail() {
     };
   }, [findings]);
 
-  // Dynamic realistic score calculation for display (resolving historical 0/100)
-  const displayScore = useMemo(() => {
-    if (!selected) return null;
-    if (selected.score != null && selected.score > 0) return selected.score;
-    if (!findings || findings.length === 0) return selected.score ?? 100;
-
-    const penalties: Record<string, number> = { CRITICAL: 20, HIGH: 12, MEDIUM: 6, LOW: 2, INFORMATIONAL: 0 };
-    const rawSum = findings.reduce((sum, f) => sum + (f.category === 'coverage' ? 0 : (penalties[f.severity] ?? 0)), 0);
-    if (rawSum <= 50) return Math.max(0, 100 - rawSum);
-    const excess = rawSum - 50;
-    const decayed = 50 / (1 + (excess / 180));
-    return Math.max(5, Math.round(decayed));
-  }, [selected, findings]);
+  // The API score is authoritative. Recalculating it in the browser made old and
+  // current methodologies look equivalent and could hide backend score caps.
+  const displayScore = selected?.score ?? null;
 
   // Project lifecycle actions: Archive & Delete
   const handleArchiveProject = async () => {
@@ -306,6 +331,14 @@ export default function ProjectDetail() {
     }, 150);
   };
 
+  const openWorkspaceTab = (tab: 'overview' | 'architecture' | 'coverage' | 'findings') => {
+    setWorkspaceTab(tab);
+    if (tab === 'architecture' && (!selected || selected.assessmentType === 'aws-account')) {
+      const latestCodeAssessment = assessments.find((assessment) => assessment.status === 'completed' && ['code', 'full'].includes(assessment.assessmentType));
+      if (latestCodeAssessment) void loadAssessment(latestCodeAssessment.id);
+    }
+  };
+
     if (loading) return <p className="text-xs text-muted">Cargando proyecto…</p>;
     if (!project) {
       return (
@@ -321,6 +354,18 @@ export default function ProjectDetail() {
     const repoOwner = project?.repoOwner || (project?.name.includes('/') ? project.name.split('/')[0].trim() : null);
     const repoName = project?.repoName || (project?.name.includes('/') ? project.name.split('/')[1].trim() : null);
     const hasRepo = Boolean(repoOwner && repoName);
+    const repositoryAssessmentActive = assessments.some((assessment) => ['code', 'full'].includes(assessment.assessmentType) && ['pending', 'running'].includes(assessment.status));
+    const latestCodeAssessment = assessments.find((assessment) => assessment.status === 'completed' && ['code', 'full'].includes(assessment.assessmentType));
+    const scoreLabel = selected?.assessmentType === 'code'
+      ? 'Seguridad del código'
+      : selected?.assessmentType === 'full'
+        ? 'Seguridad integral'
+        : 'Postura AWS';
+    const coverageLabel = selected?.assessmentType === 'code'
+      ? 'Secretos · SAST · dependencias · IaC'
+      : selected?.assessmentType === 'full'
+        ? 'Código + controles AWS observables'
+        : 'IAM · CloudTrail · S3 · red · RDS · Config · Security Hub · Inspector';
 
     return (
       <div className="space-y-6 animate-fade-in">
@@ -445,13 +490,12 @@ export default function ProjectDetail() {
               {/* Action Buttons */}
               <div className="flex shrink-0 flex-col sm:flex-row lg:flex-col gap-2.5">
                 <button
-                  onClick={runAwsAssessment}
-                  disabled={running || awsConnection.loading || !awsConnection.data?.readyForAssessment}
-                  title={awsConnection.data?.recommendation}
+                  onClick={() => setAssessmentMenuOpen((open) => !open)}
+                  disabled={running || Boolean(runningRepository) || repositoryAssessmentActive}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-all"
                 >
-                  {running ? <LoaderCircle size={15} className="animate-spin" /> : <Play size={15} />}
-                  {running ? 'Evaluando IAM, CloudTrail, Config…' : 'Ejecutar evaluación AWS'}
+                  {running || runningRepository || repositoryAssessmentActive ? <LoaderCircle size={15} className="animate-spin" /> : <Play size={15} />}
+                  {repositoryAssessmentActive ? 'Evaluación en curso…' : 'Nueva evaluación'}
                 </button>
                 <button
                   onClick={() => setReportOpen(true)}
@@ -469,7 +513,7 @@ export default function ProjectDetail() {
             {/* 1. Puntaje */}
             <div className="p-5 flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Puntaje Global</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted">{scoreLabel}</span>
                 <ShieldCheck
                   size={18}
                   className={
@@ -508,6 +552,13 @@ export default function ProjectDetail() {
                         ? 'Riesgo alto · Requiere mitigación'
                         : 'Postura crítica · Remediación urgente'}
               </span>
+              {selected?.summary.scoreCapsApplied?.length ? (
+                <span className="mt-1 text-[10px] font-bold text-rose-400">
+                  {selected.summary.scoreCapsApplied.includes('critical-secret-exposure:45')
+                    ? 'Puntaje limitado por exposición crítica de secretos'
+                    : 'Puntaje limitado por un hallazgo crítico'}
+                </span>
+              ) : null}
             </div>
 
             {/* 2. Cobertura */}
@@ -526,7 +577,7 @@ export default function ProjectDetail() {
                 />
               </div>
               <span className="mt-1 text-[11px] text-muted truncate">
-                IAM · CloudTrail · Config · Inspector
+                {coverageLabel}
               </span>
             </div>
 
@@ -575,12 +626,68 @@ export default function ProjectDetail() {
           </div>
         </div>
 
+        {assessmentMenuOpen && (
+          <Card className="border-blue-500/30">
+            <div className="border-b border-line pb-3"><h2 className="text-sm font-black text-ink">¿Qué quieres evaluar?</h2><p className="mt-1 text-xs text-muted">Cada opción mide un alcance diferente y genera su propio puntaje. No se mezclan automáticamente.</p></div>
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <button type="button" disabled={!hasRepo || repositoryAssessmentActive} onClick={() => void runRepositoryAssessment('code')} className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4 text-left hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
+                <div className="flex items-center gap-2"><GitBranch size={16} className="text-violet-400" /><strong className="text-xs text-ink">Código y repositorio</strong></div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">Descarga el commit actual y mide secretos, SAST, dependencias OSV, Docker, configuración, IaC y arquitectura detectada.</p>
+                <span className="mt-3 block text-[10px] font-bold text-violet-400">No consulta recursos AWS desplegados</span>
+              </button>
+              <button type="button" disabled={running || awsConnection.loading || !awsConnection.data?.readyForAssessment} onClick={() => { setAssessmentMenuOpen(false); void runAwsAssessment(); }} title={awsConnection.data?.recommendation} className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4 text-left hover:bg-sky-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
+                <div className="flex items-center gap-2"><Cloud size={16} className="text-sky-400" /><strong className="text-xs text-ink">Cuenta e infraestructura AWS</strong></div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">Consulta IAM, CloudTrail, S3, Security Groups, RDS, AWS Config, Security Hub e Inspector con permisos de solo lectura.</p>
+                <span className="mt-3 block text-[10px] font-bold text-sky-400">No inspecciona el código del repositorio</span>
+              </button>
+              <button type="button" disabled={!hasRepo || repositoryAssessmentActive || !awsConnection.data?.readyForAssessment} onClick={() => void runRepositoryAssessment('full')} className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-left hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer">
+                <div className="flex items-center gap-2"><ShieldCheck size={16} className="text-emerald-400" /><strong className="text-xs text-ink">Evaluación integral</strong></div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">Combina el commit actual con la postura real de la cuenta AWS y deduplica hallazgos en un resultado único.</p>
+                <span className="mt-3 block text-[10px] font-bold text-emerald-400">Recomendada para una revisión completa</span>
+              </button>
+            </div>
+          </Card>
+        )}
+
         {error && (
           <div className="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-400">
             <AlertTriangle size={15} className="mr-1.5 inline text-rose-500" />
             {error}
           </div>
         )}
+
+        <nav aria-label="Secciones de evaluación" className="flex gap-1 overflow-x-auto rounded-2xl border border-line bg-card p-1.5 shadow-sm">
+          {([
+            { id: 'overview', label: 'Resumen medido', icon: LayoutDashboard },
+            { id: 'architecture', label: 'Arquitectura detectada', icon: Layers3 },
+            { id: 'coverage', label: 'Cobertura', icon: ScanSearch },
+            { id: 'findings', label: `Hallazgos (${findings.length})`, icon: ShieldAlert },
+          ] as const).map((tab) => {
+            const Icon = tab.icon;
+            return <button key={tab.id} type="button" onClick={() => openWorkspaceTab(tab.id)} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-colors cursor-pointer ${workspaceTab === tab.id ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-muted hover:bg-canvas hover:text-ink'}`}><Icon size={14} />{tab.label}</button>;
+          })}
+        </nav>
+
+        {selected && (
+          <div className="flex flex-col gap-2 rounded-2xl border border-line bg-card px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <strong className="text-ink">Resultado visible: {assessmentTypeLabel(selected.assessmentType)}</strong>
+              <span className="ml-2 text-muted">
+                {selected.status === 'completed' ? `completado ${new Date(selected.completedAt ?? selected.startedAt).toLocaleString('es-PE')}` : `estado: ${selected.status}`}
+              </span>
+              <p className="mt-1 text-[11px] text-muted">El puntaje, la cobertura y los hallazgos corresponden solamente a esta ejecución.</p>
+            </div>
+            {selected.assessmentType === 'aws-account' && latestCodeAssessment && (
+              <button type="button" onClick={() => void loadAssessment(latestCodeAssessment.id)} className="shrink-0 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-400 hover:bg-violet-500/15 cursor-pointer">
+                Ver hallazgos del código
+              </button>
+            )}
+          </div>
+        )}
+
+        {workspaceTab !== 'findings' && <ProjectArchitectureAdvisor project={project} assessment={selected} findings={findings} view={workspaceTab} />}
+
+        <div className={workspaceTab === 'findings' ? 'space-y-6' : 'hidden'}>
 
         {/* Comparison with Previous Assessment */}
         {comparison && (
@@ -1034,6 +1141,7 @@ export default function ProjectDetail() {
             </Card>
             </div>
           </aside>
+        </div>
         </div>
       </div>
     );

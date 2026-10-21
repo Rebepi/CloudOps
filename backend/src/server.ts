@@ -13,6 +13,7 @@ import { db, cached } from './db.js';
 import { config } from './config.js';
 import * as cloud from './aws.js';
 import { evaluateAwsSecurity } from './securityAssessment.js';
+// El escáner produce hallazgos, cobertura y arquitectura respaldados por evidencia del artefacto.
 import { scanZipSecurity } from './zipSecurityScanner.js';
 import { mergeAssessments } from './fullAssessment.js';
 import { computeFingerprint } from './findingFingerprint.js';
@@ -316,12 +317,13 @@ async function runFullAssessment(projectId: string, artifactId: string, assessme
   }
 }
 
-async function runRepositoryAssessment(projectId: string, artifactId: string, assessmentId: string, source: { provider: string; owner: string; name: string; ref: string | null }, temporaryPath: string) {
+async function runRepositoryAssessment(projectId: string, artifactId: string, assessmentId: string, source: { provider: string; owner: string; name: string; ref: string | null }, temporaryPath: string, assessmentType: 'code' | 'full' = 'code', region = 'us-east-1') {
   try {
     const result = await downloadRepositoryArchive(source, config.repositoryToken, temporaryPath);
     await db.query(`UPDATE project_artifacts SET sha256=$2, size_bytes=$3, metadata=metadata || $4 WHERE id=$1`,
       [artifactId, result.sha256, result.bytes, JSON.stringify({ provider: source.provider, owner: source.owner, name: source.name, ref: result.resolvedRef, commit: result.commit, retained: false })]);
-    await runZipAssessment(projectId, artifactId, assessmentId, temporaryPath, 'repository');
+    if (assessmentType === 'full') await runFullAssessment(projectId, artifactId, assessmentId, temporaryPath, region);
+    else await runZipAssessment(projectId, artifactId, assessmentId, temporaryPath, 'repository');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await Promise.all([
@@ -998,10 +1000,15 @@ app.post<{ Body: { provider: string; owner: string; name: string; ref?: string }
   }
 });
 
-app.post<{ Params: { id: string }; Body: { ref?: string } }>('/api/v1/projects/:id/security/assessments/repository', async ({ params, body }, reply) => {
+app.post<{ Params: { id: string }; Body: { ref?: string; scope?: 'code' | 'full' } }>('/api/v1/projects/:id/security/assessments/repository', {
+  schema: { body: { type: 'object', additionalProperties: false, properties: {
+    ref: { type: 'string', maxLength: 120 }, scope: { enum: ['code', 'full'] },
+  } } },
+}, async ({ params, body }, reply) => {
   if (!uuidPattern.test(params.id)) return reply.code(400).send({ message: 'ID de proyecto inválido' });
-  const project = await db.query<{ repoProvider: string | null; repoOwner: string | null; repoName: string | null; repoDefaultBranch: string | null }>(`
+  const project = await db.query<{ repoProvider: string | null; repoOwner: string | null; repoName: string | null; repoDefaultBranch: string | null; region: string }>(`
     SELECT repo_provider AS "repoProvider", repo_owner AS "repoOwner", repo_name AS "repoName", repo_default_branch AS "repoDefaultBranch"
+      , region
     FROM projects WHERE id=$1
   `, [params.id]);
   if (!project.rowCount) return reply.code(404).send({ message: 'Proyecto no encontrado' });
@@ -1010,6 +1017,13 @@ app.post<{ Params: { id: string }; Body: { ref?: string } }>('/api/v1/projects/:
     return reply.code(400).send({ message: 'El proyecto no tiene un repositorio Git conectado.' });
   }
   if (source.repoProvider !== 'github' && source.repoProvider !== 'gitlab') return reply.code(400).send({ message: 'Proveedor de repositorio no admitido.' });
+  const assessmentType = body.scope === 'full' ? 'full' : 'code';
+  const active = await db.query<{ id: string; status: string }>(`
+    SELECT id,status FROM security_assessments
+    WHERE project_id=$1 AND assessment_type=$2 AND status IN ('pending','running')
+    ORDER BY started_at DESC LIMIT 1
+  `, [params.id, assessmentType]);
+  if (active.rowCount) return reply.code(202).send({ data: { assessmentId: active.rows[0]!.id, status: active.rows[0]!.status, reused: true } });
   const ref = body.ref?.trim() || source.repoDefaultBranch || 'main';
   const uploadDirectory = join(tmpdir(), 'cloudops-security-scans');
   await mkdir(uploadDirectory, { recursive: true });
@@ -1025,8 +1039,8 @@ app.post<{ Params: { id: string }; Body: { ref?: string } }>('/api/v1/projects/:
     `, [artifactId, params.id, `${source.repoOwner}/${source.repoName}@${ref}`, JSON.stringify({ provider: source.repoProvider, owner: source.repoOwner, name: source.repoName, ref, retained: false })]);
     await client.query(`
       INSERT INTO security_assessments(id,project_id,assessment_type,status,region,artifact_id)
-      SELECT $1,$2,'code','pending',region,$3 FROM projects WHERE id=$2
-    `, [assessmentId, params.id, artifactId]);
+      SELECT $1,$2,$4,'pending',region,$3 FROM projects WHERE id=$2
+    `, [assessmentId, params.id, artifactId, assessmentType]);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1034,8 +1048,8 @@ app.post<{ Params: { id: string }; Body: { ref?: string } }>('/api/v1/projects/:
     throw error;
   }
   client.release();
-  setImmediate(() => { void runRepositoryAssessment(params.id, artifactId, assessmentId, { provider: source.repoProvider!, owner: source.repoOwner!, name: source.repoName!, ref }, temporaryPath); });
-  return reply.code(202).send({ data: { assessmentId, artifactId, status: 'pending', provider: source.repoProvider, ref } });
+  setImmediate(() => { void runRepositoryAssessment(params.id, artifactId, assessmentId, { provider: source.repoProvider!, owner: source.repoOwner!, name: source.repoName!, ref }, temporaryPath, assessmentType, source.region); });
+  return reply.code(202).send({ data: { assessmentId, artifactId, assessmentType, status: 'pending', provider: source.repoProvider, ref } });
 });
 
 app.get('/api/v1/proposals', async () => {

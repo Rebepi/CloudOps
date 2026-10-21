@@ -1,7 +1,7 @@
 import { fromIni, fromTemporaryCredentials } from '@aws-sdk/credential-providers';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { EC2Client, DescribeInstancesCommand, DescribeRegionsCommand, DescribeAvailabilityZonesCommand, DescribeVpcsCommand, DescribeSubnetsCommand, DescribeRouteTablesCommand, DescribeSecurityGroupsCommand, DescribeInternetGatewaysCommand, DescribeNatGatewaysCommand, DescribeFlowLogsCommand, DescribeVolumesCommand } from '@aws-sdk/client-ec2';
-import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListBucketsCommand, GetPublicAccessBlockCommand, GetBucketPolicyStatusCommand } from '@aws-sdk/client-s3';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
 import { CloudWatchClient, GetMetricDataCommand, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch';
 import { CostExplorerClient, GetCostAndUsageCommand, type ResultByTime } from '@aws-sdk/client-cost-explorer';
@@ -406,8 +406,8 @@ export async function security(region: string) {
       return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: status.IsLogging };
     } catch { return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: null }; }
   }));
-  const [configResult, inspectorResult] = await Promise.allSettled([
-    configSecurityPosture(region), inspectorSecurityPosture(region),
+  const [configResult, inspectorResult, s3Result, networkResult, rdsResult] = await Promise.allSettled([
+    configSecurityPosture(region), inspectorSecurityPosture(region), s3SecurityPosture(region), networkSecurityPosture(region), rdsSecurityPosture(region),
   ]);
   return {
     accountSummary: summary.SummaryMap ?? {}, identities,
@@ -418,6 +418,75 @@ export async function security(region: string) {
     configError: configResult.status === 'rejected' ? awsError(configResult.reason) : null,
     inspector: inspectorResult.status === 'fulfilled' ? inspectorResult.value : null,
     inspectorError: inspectorResult.status === 'rejected' ? awsError(inspectorResult.reason) : null,
+    s3: s3Result.status === 'fulfilled' ? s3Result.value : null,
+    s3Error: s3Result.status === 'rejected' ? awsError(s3Result.reason) : null,
+    network: networkResult.status === 'fulfilled' ? networkResult.value : null,
+    networkError: networkResult.status === 'rejected' ? awsError(networkResult.reason) : null,
+    rds: rdsResult.status === 'fulfilled' ? rdsResult.value : null,
+    rdsError: rdsResult.status === 'rejected' ? awsError(rdsResult.reason) : null,
+  };
+}
+
+async function s3SecurityPosture(region: string) {
+  const client = new S3Client(clientConfig(region));
+  const response = await client.send(new ListBucketsCommand({}));
+  const buckets = await Promise.all((response.Buckets ?? []).slice(0, 100).map(async (bucket) => {
+    const name = bucket.Name;
+    if (!name) return { name: 'unknown', blockPublicAccess: null, publicPolicy: null, inspectionError: 'Bucket sin nombre' };
+    const [block, policy] = await Promise.allSettled([
+      client.send(new GetPublicAccessBlockCommand({ Bucket: name })),
+      client.send(new GetBucketPolicyStatusCommand({ Bucket: name })),
+    ]);
+    const configuration = block.status === 'fulfilled' ? block.value.PublicAccessBlockConfiguration : null;
+    const blockErrorName = block.status === 'rejected' && typeof block.reason === 'object' && block.reason && 'name' in block.reason
+      ? String((block.reason as { name?: unknown }).name ?? '')
+      : '';
+    const blockPublicAccess = configuration
+      ? Boolean(configuration.BlockPublicAcls && configuration.IgnorePublicAcls && configuration.BlockPublicPolicy && configuration.RestrictPublicBuckets)
+      : blockErrorName === 'NoSuchPublicAccessBlockConfiguration' ? false : null;
+    return {
+      name,
+      blockPublicAccess,
+      publicPolicy: policy.status === 'fulfilled' ? Boolean(policy.value.PolicyStatus?.IsPublic) : null,
+      inspectionError: block.status === 'rejected' || policy.status === 'rejected'
+        ? [block.status === 'rejected' ? awsError(block.reason) : null, policy.status === 'rejected' ? awsError(policy.reason) : null].filter(Boolean).join(' · ')
+        : null,
+    };
+  }));
+  return { buckets, truncated: (response.Buckets?.length ?? 0) > 100 };
+}
+
+async function networkSecurityPosture(region: string) {
+  const response = await ec2(region).send(new DescribeSecurityGroupsCommand({}));
+  return {
+    securityGroups: (response.SecurityGroups ?? []).map((group) => ({
+      id: group.GroupId,
+      name: group.GroupName,
+      vpcId: group.VpcId,
+      publicIngress: (group.IpPermissions ?? []).flatMap((permission) => {
+        const publicCidrs = [
+          ...(permission.IpRanges ?? []).filter((range) => range.CidrIp === '0.0.0.0/0').map(() => '0.0.0.0/0'),
+          ...(permission.Ipv6Ranges ?? []).filter((range) => range.CidrIpv6 === '::/0').map(() => '::/0'),
+        ];
+        return publicCidrs.map((cidr) => ({ cidr, protocol: permission.IpProtocol, fromPort: permission.FromPort, toPort: permission.ToPort }));
+      }),
+    })),
+  };
+}
+
+async function rdsSecurityPosture(region: string) {
+  const response = await new RDSClient(clientConfig(region)).send(new DescribeDBInstancesCommand({ MaxRecords: 100 }));
+  return {
+    instances: (response.DBInstances ?? []).map((instance) => ({
+      id: instance.DBInstanceIdentifier,
+      arn: instance.DBInstanceArn,
+      engine: instance.Engine,
+      publiclyAccessible: Boolean(instance.PubliclyAccessible),
+      storageEncrypted: Boolean(instance.StorageEncrypted),
+      deletionProtection: Boolean(instance.DeletionProtection),
+      multiAz: Boolean(instance.MultiAZ),
+    })),
+    truncated: Boolean(response.Marker),
   };
 }
 

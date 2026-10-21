@@ -23,19 +23,30 @@ export type MergeEvaluation = {
   summary: Record<string, unknown>;
 };
 
+export type MergedAssessment = Omit<MergeEvaluation, 'summary'> & {
+  summary: Record<string, unknown> & {
+    counts: Record<string, number>;
+    combined: true;
+    components: {
+      aws: { score: number; coverage: number; confidence: string; findings: number };
+      code: { score: number; coverage: number; confidence: string; findings: number };
+    };
+  };
+};
+
 const SEVERITY_PENALTY: Record<string, number> = { CRITICAL: 20, HIGH: 12, MEDIUM: 6, LOW: 2, INFORMATIONAL: 0 };
 
 function withFingerprint(finding: MergeFinding): MergeFinding {
   return finding.fingerprint ? finding : { ...finding, fingerprint: computeFingerprint(finding) };
 }
 
-export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation) {
+export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): MergedAssessment {
   const combined = deduplicateByFingerprint([...aws.findings, ...code.findings].map(withFingerprint));
   const counts = combined.reduce<Record<string, number>>((acc, finding) => {
     acc[finding.severity] = (acc[finding.severity] ?? 0) + 1;
     return acc;
   }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
-  const rawPenalty = combined.reduce((total, finding) => total + (finding.category === 'coverage' ? 0 : SEVERITY_PENALTY[finding.severity] ?? 0), 0);
+  const rawPenalty = combined.reduce((total, finding) => total + (finding.category === 'coverage' || finding.evidence.scoreExcluded === true ? 0 : SEVERITY_PENALTY[finding.severity] ?? 0), 0);
   let score: number;
   if (rawPenalty <= 50) {
     score = Math.max(0, Math.round(100 - rawPenalty));
@@ -44,6 +55,9 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation) {
     const decayed = 50 / (1 + (excess / 180));
     score = Math.max(5, Math.round(decayed));
   }
+  const criticalExposure = combined.some((finding) => finding.severity === 'CRITICAL' && finding.category !== 'coverage' && finding.evidence.scoreExcluded !== true);
+  const criticalSecretExposure = combined.some((finding) => finding.category === 'secret' && finding.severity === 'CRITICAL' && finding.evidence.scoreExcluded !== true);
+  if (criticalExposure) score = Math.min(score, 45);
   const coverage = Math.round((aws.coverage + code.coverage) / 2);
   const confidence = coverage === 100 ? 'high' : coverage >= 75 ? 'medium' : 'low';
   return {
@@ -63,8 +77,9 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation) {
         aws: { score: aws.score, coverage: aws.coverage, confidence: aws.confidence, findings: aws.findings.length },
         code: { score: code.score, coverage: code.coverage, confidence: code.confidence, findings: code.findings.length },
       },
+      scoreCapsApplied: criticalExposure ? [criticalSecretExposure ? 'critical-secret-exposure:45' : 'critical-finding:45'] : [],
       methodology: 'Evaluación combinada de cuenta AWS, código, dependencias e IaC; puntaje único con deduplicación entre fuentes y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.10',
+      methodologyVersion: '2026.11',
     },
   };
 }

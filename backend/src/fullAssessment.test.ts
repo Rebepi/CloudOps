@@ -30,7 +30,7 @@ test('mergeAssessments combina hallazgos de AWS y código y deduplica por huella
   assert.equal(merged.summary.combined, true);
   assert.equal(merged.summary.entryCount, 10);
   assert.deepEqual(merged.summary.counts, { CRITICAL: 1, HIGH: 1, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
-  assert.equal(merged.score, 68);
+  assert.equal(merged.score, 45);
   assert.equal(merged.confidence, 'medium');
   assert.ok(merged.summary.components);
 });
@@ -44,4 +44,14 @@ test('mergeAssessments excluye hallazgos de cobertura del puntaje', () => {
   };
   const merged = mergeAssessments(empty, code);
   assert.equal(merged.score, 100);
+});
+
+test('mergeAssessments no penaliza evidencia contextual excluida', () => {
+  const empty = { score: 100, coverage: 100, confidence: 'high', findings: [], summary: { counts: {}, methodologyVersion: '2026.11' } };
+  const code = {
+    score: 100, coverage: 80, confidence: 'medium',
+    findings: [finding({ externalId: 'fixture', severity: 'HIGH', evidence: { context: 'test', scoreExcluded: true }, fingerprint: 'fp_fixture' })],
+    summary: { counts: {}, methodologyVersion: '2026.11' },
+  };
+  assert.equal(mergeAssessments(empty, code).score, 100);
 });

@@ -133,6 +133,7 @@ export interface EvaluacionSeguridad {
     totalControls?: number;
     users?: number;
     roles?: number;
+    trails?: number;
     securityHubAvailable?: boolean;
     securityHubError?: string | null;
     configAvailable?: boolean;
@@ -144,6 +145,15 @@ export interface EvaluacionSeguridad {
     inspectorError?: string | null;
     inspectorCoveredResources?: number;
     inspectorFindings?: number;
+    s3Available?: boolean;
+    s3Error?: string | null;
+    s3Buckets?: number;
+    networkAvailable?: boolean;
+    networkError?: string | null;
+    securityGroups?: number;
+    rdsAvailable?: boolean;
+    rdsError?: string | null;
+    rdsInstances?: number;
     entryCount?: number;
     uncompressedBytes?: number;
     filesAnalyzed?: number;
@@ -151,6 +161,30 @@ export interface EvaluacionSeguridad {
     vulnerabilitiesChecked?: number;
     osvAvailable?: boolean;
     osvError?: string | null;
+    detectedArchitecture?: {
+      source?: string;
+      componentCount?: number;
+      components?: Array<{
+        id: string;
+        name: string;
+        category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration';
+        confidence: 'high' | 'medium';
+        evidence: string[];
+      }>;
+    };
+    coverageMatrix?: Array<{
+      id: string;
+      label: string;
+      status: 'measured' | 'partial' | 'not-detected';
+      files: number;
+      detail: string;
+    }>;
+    rulesExecuted?: number;
+    scoreableCounts?: Record<string, number>;
+    excludedFromScore?: number;
+    scoreScope?: string;
+    scoreCapsApplied?: string[];
+    limitations?: string[];
     methodology?: string;
   };
   errorMessage?: string | null;

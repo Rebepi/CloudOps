@@ -23,6 +23,12 @@ export type AwsSecuritySnapshot = {
     truncated: boolean;
   } | null;
   inspectorError: string | null;
+  s3?: { buckets: { name: string; blockPublicAccess: boolean | null; publicPolicy: boolean | null; inspectionError?: string | null }[]; truncated: boolean } | null;
+  s3Error?: string | null;
+  network?: { securityGroups: { id?: string; name?: string; vpcId?: string; publicIngress: { cidr: string; protocol?: string; fromPort?: number; toPort?: number }[] }[] } | null;
+  networkError?: string | null;
+  rds?: { instances: { id?: string; arn?: string; engine?: string; publiclyAccessible: boolean; storageEncrypted: boolean; deletionProtection: boolean; multiAz: boolean }[]; truncated: boolean } | null;
+  rdsError?: string | null;
 };
 
 export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
@@ -62,7 +68,7 @@ function normalizeSeverity(value?: string): FindingSeverity {
 export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
   const findings: NormalizedFinding[] = [];
   let observedControls = 0;
-  const totalControls = 8;
+  const totalControls = 11;
 
   if (typeof snapshot.accountSummary.AccountMFAEnabled === 'number') {
     observedControls += 1;
@@ -185,6 +191,64 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
     }
   }
 
+  if (!snapshot.s3Error && snapshot.s3) {
+    observedControls += 1;
+    for (const bucket of snapshot.s3.buckets) {
+      if (bucket.publicPolicy === true) {
+        findings.push({
+          externalId: `cloudops:s3-public-policy:${bucket.name}`, source: 'cloudops', category: 'configuration',
+          title: `Bucket S3 con política pública: ${bucket.name}`, description: 'S3 confirmó que la política efectiva del bucket permite acceso público.',
+          severity: 'CRITICAL', status: 'open', resource: bucket.name,
+          recommendation: 'Retirar el acceso público salvo justificación documentada y servir contenido público mediante CloudFront con OAC.',
+          evidence: { blockPublicAccess: bucket.blockPublicAccess, publicPolicy: true },
+        });
+      } else if (bucket.blockPublicAccess === false) {
+        findings.push({
+          externalId: `cloudops:s3-public-block:${bucket.name}`, source: 'cloudops', category: 'configuration',
+          title: `Bloqueo público de S3 incompleto: ${bucket.name}`, description: 'No están activos los cuatro controles de S3 Block Public Access para el bucket.',
+          severity: 'MEDIUM', status: 'open', resource: bucket.name,
+          recommendation: 'Activar BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy y RestrictPublicBuckets.',
+          evidence: { blockPublicAccess: false, publicPolicy: bucket.publicPolicy },
+        });
+      }
+    }
+  }
+
+  if (!snapshot.networkError && snapshot.network) {
+    observedControls += 1;
+    const sensitivePorts = new Set([22, 3389, 3306, 5432, 6379, 27017]);
+    for (const group of snapshot.network.securityGroups) {
+      const risky = group.publicIngress.filter((rule) => rule.protocol === '-1' || [...sensitivePorts].some((port) => (rule.fromPort ?? 0) <= port && (rule.toPort ?? 65535) >= port));
+      if (!risky.length) continue;
+      findings.push({
+        externalId: `cloudops:security-group-public-admin:${group.id ?? group.name}`, source: 'cloudops', category: 'configuration',
+        title: `Security Group expone puertos sensibles: ${group.name ?? group.id ?? 'sin nombre'}`,
+        description: 'Se observaron reglas de entrada desde cualquier dirección hacia todos los protocolos o puertos administrativos/de datos.',
+        severity: 'HIGH', status: 'open', resource: group.id ?? group.name ?? null,
+        recommendation: 'Restringir el origen a redes conocidas, VPN o Session Manager y eliminar reglas 0.0.0.0/0 y ::/0 innecesarias.',
+        evidence: { vpcId: group.vpcId, publicIngress: risky },
+      });
+    }
+  }
+
+  if (!snapshot.rdsError && snapshot.rds) {
+    observedControls += 1;
+    for (const instance of snapshot.rds.instances) {
+      if (instance.publiclyAccessible) findings.push({
+        externalId: `cloudops:rds-public:${instance.id}`, source: 'cloudops', category: 'configuration',
+        title: `Instancia RDS públicamente accesible: ${instance.id ?? 'sin identificador'}`,
+        description: 'RDS reporta PubliclyAccessible=true para la instancia.', severity: 'HIGH', status: 'open', resource: instance.arn ?? instance.id ?? null,
+        recommendation: 'Mover la base de datos a subredes privadas y limitar el acceso mediante Security Groups.', evidence: { engine: instance.engine, publiclyAccessible: true },
+      });
+      if (!instance.storageEncrypted) findings.push({
+        externalId: `cloudops:rds-unencrypted:${instance.id}`, source: 'cloudops', category: 'configuration',
+        title: `Almacenamiento RDS sin cifrado: ${instance.id ?? 'sin identificador'}`,
+        description: 'RDS reporta StorageEncrypted=false para la instancia.', severity: 'HIGH', status: 'open', resource: instance.arn ?? instance.id ?? null,
+        recommendation: 'Migrar a una instancia cifrada con una clave KMS administrada y validar cifrado de snapshots.', evidence: { engine: instance.engine, storageEncrypted: false },
+      });
+    }
+  }
+
   const withMetadata = findings.map((finding) => ({
     ...finding,
     fingerprint: computeFingerprint(finding),
@@ -205,6 +269,8 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
     const decayed = 50 / (1 + (excess / 180));
     score = Math.max(5, Math.round(decayed));
   }
+  const criticalExposure = deduplicated.some((finding) => finding.severity === 'CRITICAL' && isApplicableForScore(finding.category));
+  if (criticalExposure) score = Math.min(score, 45);
   const excludedFromScore = deduplicated.filter((finding) => !isApplicableForScore(finding.category)).length;
   const coverage = Math.round((observedControls / totalControls) * 100);
 
@@ -220,6 +286,7 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       excludedFromScore,
       users: snapshot.identities.length,
       roles: snapshot.roles.length,
+      trails: snapshot.trails.length,
       securityHubAvailable: !snapshot.findingsError,
       securityHubError: snapshot.findingsError,
       securityHubTruncated: Boolean(snapshot.findingsTruncated),
@@ -232,8 +299,18 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       inspectorError: snapshot.inspectorError,
       inspectorCoveredResources: snapshot.inspector?.coverage.length ?? 0,
       inspectorFindings: snapshot.inspector?.findings.length ?? 0,
-      methodology: 'Controles propios de CloudOps, Security Hub V2/CSPM, AWS Config e Inspector; puntaje con deduplicación y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.10',
+      s3Available: !snapshot.s3Error && Boolean(snapshot.s3),
+      s3Error: snapshot.s3Error ?? null,
+      s3Buckets: snapshot.s3?.buckets.length ?? 0,
+      networkAvailable: !snapshot.networkError && Boolean(snapshot.network),
+      networkError: snapshot.networkError ?? null,
+      securityGroups: snapshot.network?.securityGroups.length ?? 0,
+      rdsAvailable: !snapshot.rdsError && Boolean(snapshot.rds),
+      rdsError: snapshot.rdsError ?? null,
+      rdsInstances: snapshot.rds?.instances.length ?? 0,
+      scoreCapsApplied: criticalExposure ? ['critical-finding:45'] : [],
+      methodology: 'Controles propios de CloudOps sobre IAM, CloudTrail, S3, Security Groups y RDS, más Security Hub V2/CSPM, AWS Config e Inspector; puntaje con evidencia observada, deduplicación y exclusión de cobertura opcional.',
+      methodologyVersion: '2026.11',
     },
     findings: deduplicated,
   };

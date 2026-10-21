@@ -46,7 +46,18 @@ export function detectAwsService(finding: {
     };
   }
 
-  // 3. Amazon VPC & Networking
+  // 3. Amazon RDS
+  if (text.includes('rds') || text.includes('dbinstance') || text.includes('database instance')) {
+    return {
+      id: 'rds',
+      name: 'Amazon Relational Database Service (RDS)',
+      shortName: 'RDS',
+      badgeClass: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+      dotColor: '#3b82f6',
+    };
+  }
+
+  // 4. Amazon VPC & Networking
   if (
     text.includes('vpc') ||
     text.includes('security group') ||
@@ -67,7 +78,7 @@ export function detectAwsService(finding: {
     };
   }
 
-  // 4. CloudTrail & Logs / Monitoring
+  // 5. CloudTrail & Logs / Monitoring
   if (
     text.includes('cloudtrail') ||
     text.includes('trail') ||

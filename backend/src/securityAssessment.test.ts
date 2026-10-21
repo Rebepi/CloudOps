@@ -21,6 +21,12 @@ const secureSnapshot: AwsSecuritySnapshot = {
     truncated: false,
   },
   inspectorError: null,
+  s3: { buckets: [{ name: 'private-assets', blockPublicAccess: true, publicPolicy: false }], truncated: false },
+  s3Error: null,
+  network: { securityGroups: [{ id: 'sg-private', name: 'private', publicIngress: [] }] },
+  networkError: null,
+  rds: { instances: [{ id: 'db-private', publiclyAccessible: false, storageEncrypted: true, deletionProtection: true, multiAz: true }], truncated: false },
+  rdsError: null,
 };
 
 test('returns full coverage and a clean score when observed controls pass', () => {
@@ -44,12 +50,12 @@ test('normalizes account, IAM, logging and Security Hub findings', () => {
   assert.equal(result.summary.counts.CRITICAL, 1);
   assert.equal(result.summary.counts.HIGH, 2);
   assert.equal(result.summary.counts.MEDIUM, 1);
-  assert.equal(result.score, 50);
+  assert.equal(result.score, 45);
 });
 
 test('reports partial coverage when Security Hub is unavailable', () => {
   const result = evaluateAwsSecurity({ ...secureSnapshot, findingsError: 'not enabled' });
-  assert.equal(result.coverage, 88);
+  assert.equal(result.coverage, 91);
   assert.equal(result.confidence, 'medium');
   assert.equal(result.summary.securityHubAvailable, false);
 });
@@ -83,5 +89,20 @@ test('treats a root access key as a critical account finding', () => {
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0]?.externalId, 'cloudops:root-access-key');
   assert.equal(result.findings[0]?.severity, 'CRITICAL');
-  assert.equal(result.score, 80);
+  assert.equal(result.score, 45);
+});
+
+test('evalúa exposición real de S3, Security Groups y RDS', () => {
+  const result = evaluateAwsSecurity({
+    ...secureSnapshot,
+    s3: { buckets: [{ name: 'public-data', blockPublicAccess: false, publicPolicy: true }], truncated: false },
+    network: { securityGroups: [{ id: 'sg-open', name: 'open-admin', publicIngress: [{ cidr: '0.0.0.0/0', protocol: 'tcp', fromPort: 22, toPort: 22 }] }] },
+    rds: { instances: [{ id: 'db-risk', publiclyAccessible: true, storageEncrypted: false, deletionProtection: false, multiAz: false }], truncated: false },
+  });
+  assert.equal(result.coverage, 100);
+  assert.equal(result.findings.some((finding) => finding.externalId.startsWith('cloudops:s3-public-policy')), true);
+  assert.equal(result.findings.some((finding) => finding.externalId.startsWith('cloudops:security-group-public-admin')), true);
+  assert.equal(result.findings.some((finding) => finding.externalId.startsWith('cloudops:rds-public')), true);
+  assert.equal(result.findings.some((finding) => finding.externalId.startsWith('cloudops:rds-unencrypted')), true);
+  assert.equal(result.score, 45);
 });

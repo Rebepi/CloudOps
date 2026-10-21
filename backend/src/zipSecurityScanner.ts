@@ -22,6 +22,22 @@ export type CodeFinding = {
 
 type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string };
 
+export type DetectedArchitectureComponent = {
+  id: string;
+  name: string;
+  category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration';
+  confidence: 'high' | 'medium';
+  evidence: string[];
+};
+
+export type StaticCoverageDomain = {
+  id: 'secrets' | 'source-code' | 'dependencies' | 'iac' | 'containers' | 'configuration';
+  label: string;
+  status: 'measured' | 'partial' | 'not-detected';
+  files: number;
+  detail: string;
+};
+
 export type ZipScanOptions = {
   maxEntries?: number;
   maxUncompressedBytes?: number;
@@ -58,7 +74,7 @@ export function validateArchivePath(fileName: string) {
 
 function isTextCandidate(fileName: string) {
   const lower = basename(fileName).toLowerCase();
-  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === 'dockerfile' || lower === 'composer.lock' || lower === 'pipfile.lock';
+  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock'].includes(lower);
 }
 
 function safeLine(value: string) {
@@ -102,19 +118,83 @@ const RULES: Rule[] = [
   { id: 'public-s3', category: 'iac', severity: 'HIGH', title: 'ACL pública de almacenamiento', pattern: /(?:acl\s*=\s*["']public-|AccessControl\s*:\s*Public)/i, description: 'La configuración parece hacer público un bucket u objeto.', recommendation: 'Aplicar S3 Block Public Access y políticas de mínimo privilegio.', extensions: ['.tf', '.yaml', '.yml', '.json'] },
   { id: 'privileged-container', category: 'iac', severity: 'HIGH', title: 'Contenedor en modo privilegiado', pattern: /privileged\s*:\s*true/i, description: 'El contenedor obtiene capacidades amplias sobre el host.', recommendation: 'Eliminar privileged y asignar solo las capacidades indispensables.', extensions: ['.yaml', '.yml'] },
   { id: 'latest-image', category: 'iac', severity: 'LOW', title: 'Imagen de contenedor no fijada', pattern: /^\s*FROM\s+\S+:latest\b/im, description: 'La imagen usa la etiqueta mutable latest.', recommendation: 'Fijar una versión o digest y actualizarla mediante un proceso controlado.' },
+  { id: 'node-command-exec', category: 'code', severity: 'HIGH', title: 'Ejecución de comandos desde Node.js', pattern: /(?:child_process\.|\bexecSync\s*\(|\bspawnSync\s*\()/i, description: 'El código ejecuta procesos del sistema y puede permitir inyección si incorpora entrada no confiable.', recommendation: 'Usar argumentos separados, listas permitidas y evitar shells; valida toda entrada antes de ejecutar procesos.', extensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'] },
+  { id: 'weak-password-hash', category: 'code', severity: 'HIGH', title: 'Hash débil aplicado a credenciales', pattern: /(?:createHash\s*\(\s*['"](?:md5|sha1)['"]|hashlib\.(?:md5|sha1)\s*\()/i, description: 'MD5 y SHA-1 no son funciones adecuadas para almacenar contraseñas.', recommendation: 'Usar Argon2id, scrypt o bcrypt con parámetros de costo apropiados y salt único.' },
+  { id: 'cors-wildcard', category: 'code', severity: 'MEDIUM', title: 'CORS permite cualquier origen', pattern: /(?:allow_origins\s*=\s*\[\s*['"]\*['"]|origin\s*:\s*['"]\*['"]|Access-Control-Allow-Origin.{0,20}\*)/i, description: 'La aplicación permite solicitudes desde cualquier origen.', recommendation: 'Mantener una lista explícita de orígenes confiables por ambiente y revisar el uso de credenciales.' },
+  { id: 'jwt-signature-disabled', category: 'code', severity: 'CRITICAL', title: 'Validación de firma JWT deshabilitada', pattern: /(?:verify_signature['"]?\s*:\s*false|algorithms?\s*[:=]\s*\[?['"]none['"])/i, description: 'La configuración permite aceptar tokens sin verificar su firma.', recommendation: 'Exigir algoritmos permitidos explícitamente y validar firma, emisor, audiencia y expiración.' },
+  { id: 'python-yaml-load', category: 'code', severity: 'HIGH', title: 'Deserialización YAML insegura', pattern: /\byaml\.load\s*\([^\n]*(?!SafeLoader)/i, description: 'yaml.load puede construir objetos peligrosos cuando procesa contenido no confiable.', recommendation: 'Usar yaml.safe_load o SafeLoader y validar el esquema resultante.', extensions: ['.py'] },
+  { id: 'debug-production', category: 'code', severity: 'HIGH', title: 'Modo debug habilitado', pattern: /(?:debug\s*=\s*True|FLASK_DEBUG\s*[:=]\s*['"]?1|NODE_ENV\s*[:=]\s*['"]development['"])/i, description: 'El modo de depuración puede exponer trazas, configuración o consolas administrativas.', recommendation: 'Deshabilitar debug fuera del entorno local y controlar el ambiente desde configuración segura.' },
+  { id: 'sql-string-concat', category: 'code', severity: 'HIGH', title: 'Consulta SQL construida dinámicamente', pattern: /(?:execute|query)\s*\(\s*(?:f['"]|['"`][^\n]*(?:\+|\$\{))/i, description: 'La consulta parece incorporar valores mediante concatenación o interpolación.', recommendation: 'Usar consultas parametrizadas y validar identificadores que no puedan parametrizarse.' },
+  { id: 'iam-wildcard', category: 'iac', severity: 'HIGH', title: 'Permiso IAM global', pattern: /(?:Action|Resource)\s*[:=]\s*(?:\[\s*)?['"]\*['"]/i, description: 'La política de infraestructura concede acciones o recursos globales.', recommendation: 'Reducir acciones y recursos a los ARN estrictamente necesarios y añadir condiciones.' , extensions: ['.tf', '.yaml', '.yml', '.json'] },
+  { id: 'unencrypted-storage', category: 'iac', severity: 'MEDIUM', title: 'Cifrado de almacenamiento deshabilitado', pattern: /(?:storage_encrypted|encrypted|enable_storage_encryption)\s*[:=]\s*false/i, description: 'La infraestructura declara almacenamiento sin cifrado.', recommendation: 'Habilitar cifrado con KMS y definir una política de rotación y acceso a claves.', extensions: ['.tf', '.yaml', '.yml', '.json'] },
+  { id: 'docker-root-user', category: 'iac', severity: 'MEDIUM', title: 'Contenedor declara usuario root', pattern: /^\s*USER\s+(?:root|0)\s*$/im, description: 'La imagen configura explícitamente la ejecución como root.', recommendation: 'Crear un usuario sin privilegios, copiar solo los artefactos necesarios y ejecutar con ese usuario.' },
+  { id: 'docker-socket', category: 'iac', severity: 'CRITICAL', title: 'Socket de Docker montado en un contenedor', pattern: /\/var\/run\/docker\.sock\s*:/i, description: 'El contenedor puede controlar el daemon Docker y potencialmente el host.', recommendation: 'Eliminar el montaje del socket o usar un proxy con permisos mínimos y aislamiento adicional.', extensions: ['.yaml', '.yml'] },
 ];
+
+type ComponentMatch = Omit<DetectedArchitectureComponent, 'evidence'>;
+
+const COMPONENT_SIGNATURES: { match: RegExp; component: ComponentMatch }[] = [
+  { match: /["']react["']|from\s+["']react["']/i, component: { id: 'react', name: 'React', category: 'client', confidence: 'high' } },
+  { match: /["'](?:vue|@vue\/core)["']/i, component: { id: 'vue', name: 'Vue', category: 'client', confidence: 'high' } },
+  { match: /["']@angular\/core["']/i, component: { id: 'angular', name: 'Angular', category: 'client', confidence: 'high' } },
+  { match: /\bfastapi\b|from\s+fastapi\s+import/i, component: { id: 'fastapi', name: 'FastAPI', category: 'api', confidence: 'high' } },
+  { match: /["']fastify["']|from\s+["']fastify["']/i, component: { id: 'fastify', name: 'Fastify', category: 'api', confidence: 'high' } },
+  { match: /["']express["']|require\s*\(\s*["']express["']/i, component: { id: 'express', name: 'Express', category: 'api', confidence: 'high' } },
+  { match: /\bdjango\b|from\s+django\b/i, component: { id: 'django', name: 'Django', category: 'api', confidence: 'high' } },
+  { match: /postgres(?:ql)?(?:\+asyncpg)?\s*:\/\/|\basyncpg\b|\bpsycopg\b/i, component: { id: 'postgresql', name: 'PostgreSQL', category: 'data', confidence: 'high' } },
+  { match: /mongodb(?:\+srv)?\s*:\/\/|["']mongoose["']/i, component: { id: 'mongodb', name: 'MongoDB', category: 'data', confidence: 'high' } },
+  { match: /redis\s*:\/\/|["'](?:ioredis|redis)["']/i, component: { id: 'redis', name: 'Redis', category: 'data', confidence: 'high' } },
+  { match: /\b(?:jwt|jose|pyjwt|oauth2?|openid|oidc)\b/i, component: { id: 'token-auth', name: 'Autenticación por tokens/OAuth', category: 'security', confidence: 'medium' } },
+  { match: /\b(?:opentelemetry|cloudwatch|sentry|prometheus_client)\b/i, component: { id: 'telemetry', name: 'Telemetría de aplicación', category: 'observability', confidence: 'high' } },
+  { match: /\b(?:smtp|sendgrid|ses|mailgun)\b/i, component: { id: 'email', name: 'Entrega de correo', category: 'integration', confidence: 'medium' } },
+  { match: /\b(?:celery|rq|bullmq|sidekiq)\b/i, component: { id: 'worker', name: 'Procesamiento en segundo plano', category: 'runtime', confidence: 'high' } },
+];
+
+function architectureComponents(fileName: string, text: string): ComponentMatch[] {
+  const normalized = fileName.replace(/\\/g, '/').toLowerCase();
+  const lowerBase = basename(fileName).toLowerCase();
+  const components = COMPONENT_SIGNATURES.filter((signature) => signature.match.test(text)).map((signature) => signature.component);
+  if (lowerBase === 'dockerfile') components.push({ id: 'docker', name: 'Contenedores Docker', category: 'runtime', confidence: 'high' });
+  if (/compose(?:\.[^.]+)?\.ya?ml$|docker-compose.*\.ya?ml$/.test(lowerBase)) {
+    components.push({ id: 'compose', name: 'Docker Compose', category: 'runtime', confidence: 'high' });
+    let insideServices = false;
+    for (const line of text.split(/\r?\n/)) {
+      if (/^services:\s*(?:#.*)?$/.test(line)) { insideServices = true; continue; }
+      if (insideServices && /^\S/.test(line) && line.trim()) break;
+      const service = insideServices ? line.match(/^ {2}([A-Za-z0-9_.-]+):\s*(?:#.*)?$/)?.[1] : null;
+      if (service) components.push({ id: `compose-service-${service}`, name: `Servicio Compose: ${service}`, category: 'runtime', confidence: 'high' });
+    }
+  }
+  if (extension(fileName) === '.tf') components.push({ id: 'terraform', name: 'Terraform', category: 'delivery', confidence: 'high' });
+  if (/\.github\/workflows\/.*\.ya?ml$/.test(normalized)) components.push({ id: 'github-actions', name: 'GitHub Actions', category: 'delivery', confidence: 'high' });
+  if (lowerBase === '.gitlab-ci.yml') components.push({ id: 'gitlab-ci', name: 'GitLab CI', category: 'delivery', confidence: 'high' });
+  if (/nginx.*\.conf$/.test(lowerBase)) components.push({ id: 'nginx', name: 'Nginx', category: 'runtime', confidence: 'high' });
+  return components;
+}
 
 export function analyzeTextFile(fileName: string, text: string): CodeFinding[] {
   const results: CodeFinding[] = [];
   const ext = extension(fileName);
   const lowerBase = basename(fileName).toLowerCase();
-  if (lowerBase === '.env' || /^\.env\./.test(lowerBase) || /(?:^|\/)(?:id_rsa|id_ed25519|credentials)$/i.test(fileName)) {
-    results.push(finding('sensitive-file', 'secret', 'HIGH', 'Archivo sensible incluido en el ZIP',
-      'El paquete contiene un archivo cuyo nombre suele utilizarse para credenciales.', fileName, null,
-      'Excluir el archivo del paquete, rotar cualquier secreto real y mantener solo una plantilla sin valores.'));
-  }
   const lines = text.split(/\r?\n/);
+  if (lowerBase === '.env' || /^\.env\./.test(lowerBase) || /(?:^|\/)(?:id_rsa|id_ed25519|credentials)$/i.test(fileName)) {
+    const populatedSecretKeys = lines.flatMap((line) => {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+      if (!match || !/(?:PASSWORD|PASSWD|SECRET(?:_KEY)?|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL|ENCRYPTION_KEY)$/i.test(match[1]!)) return [];
+      const value = match[2]!.replace(/^['"]|['"]$/g, '').trim();
+      if (!value || /^(?:changeme|change-me|example|sample|dummy|replace|your[_-]|<.*>|\$\{.*\})/i.test(value)) return [];
+      return [match[1]!];
+    });
+    const activeSecrets = [...new Set(populatedSecretKeys)];
+    const sensitiveFinding = finding(activeSecrets.length ? 'populated-sensitive-file' : 'sensitive-file', 'secret', activeSecrets.length ? 'CRITICAL' : 'HIGH',
+      activeSecrets.length ? 'Archivo .env con credenciales configuradas' : 'Archivo sensible incluido en el ZIP',
+      activeSecrets.length ? `El repositorio contiene un archivo de entorno con ${activeSecrets.length} variable(s) sensible(s) que tienen valores no reconocidos como plantilla.` : 'El paquete contiene un archivo cuyo nombre suele utilizarse para credenciales.',
+      fileName, null, 'Retirar el archivo del repositorio, rotar inmediatamente cada credencial expuesta y conservar solamente una plantilla .env.example sin valores.');
+    sensitiveFinding.evidence = { file: fileName, populatedSensitiveKeys: activeSecrets };
+    results.push(sensitiveFinding);
+  }
   const isTestFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(fileName.replace(/\\/g, '/'));
+  const isDatabaseMigration = /(?:^|\/)(?:migrations?|alembic\/versions)(?:\/|$)/i.test(fileName.replace(/\\/g, '/'));
   for (const rule of RULES) {
     if (rule.extensions && !rule.extensions.includes(ext)) continue;
     const lineIndex = lines.findIndex((line) => {
@@ -123,9 +203,14 @@ export function analyzeTextFile(fileName: string, text: string): CodeFinding[] {
     });
     if (lineIndex >= 0) {
       const fixtureSecret = isTestFixture && rule.category === 'secret' && ['hardcoded-secret', 'database-url'].includes(rule.id);
-      results.push(finding(rule.id, rule.category, fixtureSecret ? 'MEDIUM' : rule.severity, rule.title,
-        fixtureSecret ? `${rule.description} Está en un archivo de pruebas y requiere validación manual antes de tratarlo como credencial real.` : rule.description,
-        fileName, lineIndex + 1, rule.recommendation));
+      const migrationSql = isDatabaseMigration && rule.id === 'sql-string-concat';
+      const contextual = fixtureSecret || migrationSql;
+      const detected = finding(rule.id, rule.category, contextual ? 'INFORMATIONAL' : rule.severity, rule.title,
+        fixtureSecret ? `${rule.description} El valor aparece en una prueba y se conserva como evidencia sin afectar el puntaje.`
+          : migrationSql ? `${rule.description} Aparece en una migración de base de datos; requiere revisión manual y no afecta el puntaje automático.` : rule.description,
+        fileName, lineIndex + 1, rule.recommendation);
+      if (contextual) detected.evidence = { ...detected.evidence, context: fixtureSecret ? 'test' : 'database-migration', scoreExcluded: true };
+      results.push(detected);
     }
   }
   return results;
@@ -168,7 +253,7 @@ export function parseDependencies(fileName: string, text: string): Dependency[] 
         const version = normalizeVersion(match?.[2]);
         if (match?.[1] && version) dependencies.push({ ecosystem: 'PyPI', name: match[1], version, manifest: fileName });
       }
-    } else if (lower === 'poetry.lock') {
+    } else if (lower === 'poetry.lock' || lower === 'uv.lock') {
       let name = '';
       for (const line of text.split(/\r?\n/)) {
         if (/^\[\[package\]\]/.test(line)) name = '';
@@ -210,11 +295,20 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
   const findings: CodeFinding[] = [];
   const dependencies: Dependency[] = [];
   const extensions: Record<string, number> = {};
+  const components = new Map<string, DetectedArchitectureComponent>();
+  const domainFiles: Record<StaticCoverageDomain['id'], Set<string>> = {
+    secrets: new Set(),
+    'source-code': new Set(),
+    dependencies: new Set(),
+    iac: new Set(),
+    containers: new Set(),
+    configuration: new Set(),
+  };
   let entryCount = 0;
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number> }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number> }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -226,7 +320,11 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
     zip.on('end', () => {
       if (!settled) {
         settled = true;
-        resolve({ findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions });
+        resolve({
+          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions,
+          components: [...components.values()],
+          domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
+        });
       }
     });
     zip.on('entry', (entry) => {
@@ -250,6 +348,24 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
             textBytes += buffer.length;
             filesAnalyzed += 1;
             const text = buffer.toString('utf8');
+            const normalized = entry.fileName.replace(/\\/g, '/').toLowerCase();
+            const lowerBase = basename(entry.fileName).toLowerCase();
+            const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs']);
+            domainFiles.secrets.add(entry.fileName);
+            if (sourceExtensions.has(extension(entry.fileName))) domainFiles['source-code'].add(entry.fileName);
+            if (/^(?:package-lock\.json|composer\.lock|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/.test(lowerBase)) domainFiles.dependencies.add(entry.fileName);
+            if (['.tf', '.tfvars'].includes(extension(entry.fileName)) || /(?:cloudformation|template)\.ya?ml$/.test(lowerBase)) domainFiles.iac.add(entry.fileName);
+            if (lowerBase === 'dockerfile' || /(?:docker-)?compose.*\.ya?ml$/.test(lowerBase)) domainFiles.containers.add(entry.fileName);
+            if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(extension(entry.fileName)) || normalized.includes('/config/')) domainFiles.configuration.add(entry.fileName);
+            const isEvidenceFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?|interaction-tests)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(normalized);
+            for (const detected of isEvidenceFixture ? [] : architectureComponents(entry.fileName, text)) {
+              const existing = components.get(detected.id);
+              if (existing) {
+                if (!existing.evidence.includes(entry.fileName) && existing.evidence.length < 5) existing.evidence.push(entry.fileName);
+              } else {
+                components.set(detected.id, { ...detected, evidence: [entry.fileName] });
+              }
+            }
             if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text).slice(0, 500 - findings.length));
             dependencies.push(...parseDependencies(entry.fileName, text));
           }
@@ -342,22 +458,49 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   }));
   const findings = deduplicateByFingerprint(withMetadata);
   const counts = findings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
+  const scoreableFindings = findings.filter((item) => item.evidence.scoreExcluded !== true);
+  const scoreableCounts = scoreableFindings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
   const diminishingPenalty = (count: number, weight: number) => count ? weight * Math.log2(count + 1) : 0;
-  const rawPenalty = diminishingPenalty(counts.CRITICAL, 22) + diminishingPenalty(counts.HIGH, 12)
-    + diminishingPenalty(counts.MEDIUM, 5) + diminishingPenalty(counts.LOW, 2);
-  const score = Math.max(0, Math.round(100 - Math.min(100, rawPenalty)));
-  const observedControls = 4 + (osvAvailable || !deduplicatedDependencies.length ? 1 : 0);
-  const totalControls = 5;
+  const rawPenalty = diminishingPenalty(scoreableCounts.CRITICAL, 22) + diminishingPenalty(scoreableCounts.HIGH, 12)
+    + diminishingPenalty(scoreableCounts.MEDIUM, 5) + diminishingPenalty(scoreableCounts.LOW, 2);
+  const calculatedScore = Math.max(0, Math.round(100 - Math.min(100, rawPenalty)));
+  const criticalSecretExposure = scoreableFindings.some((item) => item.category === 'secret' && item.severity === 'CRITICAL');
+  const score = criticalSecretExposure ? Math.min(45, calculatedScore) : calculatedScore;
+  const coverageMatrix: StaticCoverageDomain[] = [
+    { id: 'secrets', label: 'Secretos y credenciales', status: archive.domainFileCounts.secrets ? 'measured' : 'not-detected', files: archive.domainFileCounts.secrets, detail: archive.domainFileCounts.secrets ? 'Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.' : 'No se encontraron archivos de texto analizables.' },
+    { id: 'source-code', label: 'Código fuente (SAST)', status: archive.domainFileCounts['source-code'] ? 'measured' : 'not-detected', files: archive.domainFileCounts['source-code'], detail: archive.domainFileCounts['source-code'] ? `Reglas estáticas aplicadas a ${archive.domainFileCounts['source-code']} archivo(s) de código.` : 'No se detectaron extensiones de código admitidas.' },
+    { id: 'dependencies', label: 'Dependencias conocidas', status: archive.domainFileCounts.dependencies ? (osvAvailable ? 'measured' : 'partial') : 'not-detected', files: archive.domainFileCounts.dependencies, detail: archive.domainFileCounts.dependencies ? (osvAvailable ? `${vulnerabilitiesChecked} versiones consultadas en OSV.` : `Se detectaron manifiestos, pero OSV no pudo completar la consulta: ${osvError ?? 'sin detalle'}.`) : 'No se encontró un lockfile compatible; no se calificaron vulnerabilidades de dependencias.' },
+    { id: 'iac', label: 'Infraestructura como código', status: archive.domainFileCounts.iac ? 'measured' : 'not-detected', files: archive.domainFileCounts.iac, detail: archive.domainFileCounts.iac ? 'Terraform/CloudFormation inspeccionado con reglas de exposición, IAM y cifrado.' : 'No se detectó Terraform o CloudFormation; este dominio no fue medido.' },
+    { id: 'containers', label: 'Contenedores', status: archive.domainFileCounts.containers ? 'measured' : 'not-detected', files: archive.domainFileCounts.containers, detail: archive.domainFileCounts.containers ? 'Dockerfiles y/o archivos Compose inspeccionados.' : 'No se detectaron definiciones Docker; este dominio no fue medido.' },
+    { id: 'configuration', label: 'Configuración desplegable', status: archive.domainFileCounts.configuration ? 'measured' : 'not-detected', files: archive.domainFileCounts.configuration, detail: archive.domainFileCounts.configuration ? 'Archivos de configuración inspeccionados para exposición y valores inseguros.' : 'No se detectaron archivos de configuración compatibles.' },
+  ];
+  const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' ? 0.5 : 0), 0);
+  const totalControls = coverageMatrix.length;
   const coverage = Math.round(observedControls / totalControls * 100);
   return {
     score, coverage, confidence: coverage === 100 ? 'high' as const : coverage >= 75 ? 'medium' as const : 'low' as const,
     findings,
     summary: {
       counts, observedControls, totalControls, entryCount: archive.entryCount, uncompressedBytes: archive.uncompressedBytes,
+      scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
+      scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
       osvAvailable, osvError, extensions: archive.extensions,
-      methodology: 'Análisis estático por patrones, secretos, configuración/IaC e inventario de dependencias; no se ejecutó código.',
-      methodologyVersion: '2026.10',
+      detectedArchitecture: {
+        source: 'repository-static-evidence',
+        components: archive.components,
+        componentCount: archive.components.length,
+      },
+      coverageMatrix,
+      rulesExecuted: RULES.length,
+      scoreScope: 'Riesgo estático observado en los archivos cubiertos; no representa por sí solo la seguridad total del sistema desplegado.',
+      limitations: [
+        'No se ejecutó el código ni se enviaron solicitudes a una aplicación en funcionamiento.',
+        'No se probaron controles del proveedor cloud salvo en una evaluación combinada con la cuenta AWS.',
+        'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
+      ],
+      methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
+      methodologyVersion: '2026.11',
     },
   };
 }
