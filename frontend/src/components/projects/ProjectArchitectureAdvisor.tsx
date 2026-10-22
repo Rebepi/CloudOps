@@ -4,6 +4,7 @@ import { Card } from '../ui/Card';
 import { RepositoryTree } from './RepositoryTree';
 import { AssessmentStatistics } from './AssessmentStatistics';
 import { AssessmentOverview } from './AssessmentOverview';
+import { SecurityDimensions } from './SecurityDimensions';
 
 type EvidenceView = 'overview' | 'architecture' | 'coverage';
 type ArchitectureComponent = { id: string; name: string; category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration'; confidence: 'high' | 'medium'; evidence: string[] };
@@ -88,6 +89,7 @@ function AwsCoverage({ assessment }: { assessment: EvaluacionSeguridad }) {
   ];
   return <Card>
     <AssessmentStatistics assessment={assessment} />
+    <SecurityDimensions dimensions={assessment.dimensionScores} analyzers={assessment.analyzers} />
     <div className="mt-5 border-t border-line pt-5"><h3 className="text-sm font-bold text-ink">Fuentes AWS consultadas</h3>
       <div className="mt-3 divide-y divide-line">{services.map((service) => <div key={service.name} className="grid gap-2 py-3 text-xs sm:grid-cols-[150px_90px_1fr]"><strong className="text-ink">{service.name}</strong><span className={service.available ? 'text-blue-400' : 'text-amber-400'}>{service.available ? 'Medido' : 'No medido'}</span><span className="text-muted">{service.detail}</span></div>)}</div>
     </div>
@@ -151,6 +153,7 @@ export function ProjectArchitectureAdvisor({ project, assessment, findings, view
   const measured = coverage.filter((domain) => domain.status === 'measured').length;
   return <Card>
     <AssessmentStatistics assessment={assessment!} />
+    <SecurityDimensions dimensions={assessment?.dimensionScores} analyzers={assessment?.analyzers} />
     <div className="mt-6 border-t border-line pt-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-ink">Dominios de seguridad observados</h3><span className="text-xs text-blue-400">{measured} de {coverage.length} medidos</span></div>
       <div className="mt-3 divide-y divide-line">{coverage.map((domain) => <div key={domain.id} className="flex items-start justify-between gap-4 py-3"><div><strong className="text-xs text-ink">{domain.label}</strong><p className="mt-1 text-[11px] text-muted">{domain.detail}</p></div><span className="shrink-0 text-[11px] text-blue-400">{statusLabels[domain.status]} · {domain.files} archivos</span></div>)}</div>
     </div>

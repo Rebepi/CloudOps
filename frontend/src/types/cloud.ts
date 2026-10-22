@@ -43,6 +43,7 @@ export interface HallazgoSeguridad {
   externalId?: string | null;
   source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv';
   category: string;
+  dimension?: string | null;
   title: string;
   description: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
@@ -124,6 +125,40 @@ export interface EjecucionProgramada {
   completedAt?: string | null;
 }
 
+
+export type DimensionSeguridadId = 'identity' | 'data' | 'application' | 'dependencies' | 'configuration' | 'detection';
+export type EstadoControlSeguridad = 'pass' | 'fail' | 'partial' | 'not_applicable' | 'not_supported' | 'failed' | 'skipped';
+
+export interface ControlDimensionSeguridad {
+  id: string;
+  dimension: DimensionSeguridadId;
+  label: string;
+  state: EstadoControlSeguridad;
+  detail: string;
+}
+
+export interface DimensionSeguridad {
+  id: DimensionSeguridadId;
+  label: string;
+  description: string;
+  score: number | null;
+  coverage: number;
+  state: 'measured' | 'partial' | 'not_measured';
+  controls: ControlDimensionSeguridad[];
+  counts: Record<string, number>;
+  scoreExcludedFindings: number;
+}
+
+export interface AnalizadorEvaluacion {
+  analyzerId: string;
+  dimension: DimensionSeguridadId;
+  state: 'completed' | 'partial' | 'failed' | 'skipped' | 'not_supported';
+  itemsAnalyzed: number;
+  findingsCount: number;
+  error?: string | null;
+  detail?: Record<string, unknown>;
+  createdAt?: string;
+}
 
 export interface EvaluacionSeguridad {
   id: string;
@@ -207,6 +242,10 @@ export interface EvaluacionSeguridad {
   errorMessage?: string | null;
   startedAt: string;
   completedAt?: string | null;
+  dimensionScores?: DimensionSeguridad[];
+  controlResults?: ControlDimensionSeguridad[];
+  engineVersion?: string;
+  analyzers?: AnalizadorEvaluacion[];
   findingCount?: number;
   findings?: HallazgoSeguridad[];
   artifactId?: string | null;

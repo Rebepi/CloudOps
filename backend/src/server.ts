@@ -16,6 +16,7 @@ import { evaluateAwsSecurity } from './securityAssessment.js';
 // El escáner produce hallazgos, cobertura y arquitectura respaldados por evidencia del artefacto.
 import { scanZipSecurity } from './zipSecurityScanner.js';
 import { mergeAssessments } from './fullAssessment.js';
+import { buildAnalyzerRuns, computeDimensionBreakdown, dimensionForFinding, type FindingInput } from './security/dimensions.js';
 import { computeFingerprint } from './findingFingerprint.js';
 import { startScheduler, computeNextRun } from './scheduler.js';
 import { downloadRepositoryArchive, verifyRepository } from './repository.js';
@@ -64,6 +65,7 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
   const assessment = await db.query(`
     SELECT sa.id, sa.project_id AS "projectId", sa.assessment_type AS "assessmentType", sa.status, sa.region,
       sa.score, sa.coverage, sa.confidence, sa.summary, sa.error_message AS "errorMessage",
+      sa.dimension_scores AS "dimensionScores", sa.control_results AS "controlResults", sa.engine_version AS "engineVersion",
       sa.started_at AS "startedAt", sa.completed_at AS "completedAt",
       artifact_id AS "artifactId", pa.original_name AS "artifactName", pa.sha256 AS "artifactSha256",
       pa.size_bytes AS "artifactSizeBytes", pa.metadata AS "artifactMetadata"
@@ -72,14 +74,19 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
   `, [assessmentId, projectId]);
   if (!assessment.rowCount) return null;
   const findings = await db.query(`
-    SELECT id, assessment_id AS "assessmentId", external_id AS "externalId", source, category,
+    SELECT id, assessment_id AS "assessmentId", external_id AS "externalId", source, category, dimension,
       title, description, severity, status, resource, recommendation, evidence, fingerprint, framework,
       owner, due_date AS "dueDate", justification, approved_by AS "approvedBy",
       created_at AS "createdAt", updated_at AS "updatedAt"
     FROM security_findings WHERE assessment_id=$1
     ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 4 ELSE 5 END, created_at
   `, [assessmentId]);
-  return { ...assessment.rows[0], findings: findings.rows };
+  const analyzers = await db.query(`
+    SELECT analyzer_id AS "analyzerId", dimension, state, items_analyzed AS "itemsAnalyzed",
+      findings_count AS "findingsCount", error, detail, created_at AS "createdAt"
+    FROM assessment_analyzers WHERE assessment_id=$1 ORDER BY analyzer_id
+  `, [assessmentId]);
+  return { ...assessment.rows[0], findings: findings.rows, analyzers: analyzers.rows };
 }
 
 async function loadComparison(projectId: string, assessmentId: string) {
@@ -189,16 +196,42 @@ async function insertFindings(client: PoolClient, projectId: string, assessmentI
     }
     const findingId = randomUUID();
     await client.query(`
-      INSERT INTO security_findings(id,assessment_id,external_id,source,category,title,description,severity,status,resource,recommendation,evidence,fingerprint,framework,owner,due_date,justification,approved_by,first_seen_assessment_id,last_seen_assessment_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      INSERT INTO security_findings(id,assessment_id,external_id,source,category,title,description,severity,status,resource,recommendation,evidence,fingerprint,framework,owner,due_date,justification,approved_by,first_seen_assessment_id,last_seen_assessment_id,dimension)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
     `, [findingId, assessmentId, finding.externalId ?? null, finding.source, finding.category, finding.title, finding.description,
       finding.severity, status, finding.resource ?? null, finding.recommendation, JSON.stringify(finding.evidence),
-      fingerprint, finding.framework ?? null, owner, dueDate, justification, approvedBy, firstSeen, assessmentId]);
+      fingerprint, finding.framework ?? null, owner, dueDate, justification, approvedBy, firstSeen, assessmentId,
+      dimensionForFinding(finding)]);
     await client.query(`
       INSERT INTO security_finding_events(id,finding_id,event_type,from_status,to_status,actor,justification,metadata)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
     `, [randomUUID(), findingId, eventType, prior?.status ?? null, status, 'system', justification,
       JSON.stringify({ severity: finding.severity, severityChanged: Boolean(prior && prior.severity !== finding.severity) })]);
+  }
+}
+
+async function completeAssessment(client: PoolClient, assessmentId: string, assessmentType: string, evaluation: {
+  score: number | null;
+  coverage: number;
+  confidence: string;
+  summary: Record<string, unknown>;
+  findings: readonly FindingInput[];
+}) {
+  const breakdown = computeDimensionBreakdown({ assessmentType, findings: evaluation.findings, summary: evaluation.summary });
+  const controls = breakdown.flatMap((dimension) => dimension.controls);
+  const analyzers = buildAnalyzerRuns({ assessmentType, findings: evaluation.findings, summary: evaluation.summary });
+  await client.query(`
+    UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,
+      dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
+    WHERE id=$1
+  `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
+    String(evaluation.summary.methodologyVersion ?? '2026.11'), JSON.stringify(breakdown), JSON.stringify(controls), '1.1.0']);
+  await client.query('DELETE FROM assessment_analyzers WHERE assessment_id=$1', [assessmentId]);
+  for (const run of analyzers) {
+    await client.query(`
+      INSERT INTO assessment_analyzers(id,assessment_id,analyzer_id,dimension,state,items_analyzed,findings_count,error,detail)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `, [randomUUID(), assessmentId, run.analyzerId, run.dimension, run.state, run.itemsAnalyzed, run.findingsCount, run.error, JSON.stringify(run.detail)]);
   }
 }
 
@@ -213,9 +246,7 @@ async function runAwsAssessment(projectId: string, region: string) {
     try {
       await client.query('BEGIN');
       await insertFindings(client, projectId, assessmentId, 'aws-account', evaluation.findings);
-      await client.query(`
-        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now() WHERE id=$1
-      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
+      await completeAssessment(client, assessmentId, 'aws-account', evaluation);
       await client.query('COMMIT');
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
@@ -236,10 +267,7 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
     try {
       await client.query('BEGIN');
       await insertFindings(client, projectId, assessmentId, 'code', evaluation.findings);
-      await client.query(`
-        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now()
-        WHERE id=$1
-      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
+      await completeAssessment(client, assessmentId, 'code', evaluation);
       await client.query(`
         UPDATE project_artifacts SET status='completed',entry_count=$2,uncompressed_bytes=$3,metadata=metadata || $4,scanned_at=now()
         WHERE id=$1
@@ -284,10 +312,7 @@ async function runFullAssessment(projectId: string, artifactId: string, assessme
     try {
       await client.query('BEGIN');
       await insertFindings(client, projectId, assessmentId, 'full', evaluation.findings);
-      await client.query(`
-        UPDATE security_assessments SET status='completed',score=$2,coverage=$3,confidence=$4,summary=$5,methodology_version=$6,completed_at=now()
-        WHERE id=$1
-      `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary), evaluation.summary.methodologyVersion]);
+      await completeAssessment(client, assessmentId, 'full', evaluation);
       await client.query(`
         UPDATE project_artifacts SET status='completed',entry_count=$2,uncompressed_bytes=$3,metadata=metadata || $4,scanned_at=now()
         WHERE id=$1
