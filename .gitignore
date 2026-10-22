@@ -1,5 +1,6 @@
 .env
 backend/.env
+compose.override.yaml
 **/node_modules/
 **/dist/
 *.log
