@@ -139,3 +139,30 @@ test('un inventario excesivo se limita sin declarar el SBOM completo', async (t)
   assert.equal(evaluation.summary.supplyChain.inventoryComplete, false);
   assert.ok(evaluation.summary.scanLimits.includes('dependency-inventory-limit'));
 });
+
+test('Gitleaks integrado recibe archivos sensibles sin extensión y conserva solo evidencia redactada', async (t) => {
+  const path = await archive(t, { 'backend/id_rsa': 'unit test key content', 'backend/server.pem': 'unit test PEM content', 'backend/config.env': 'API_KEY=changeme' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false, secretScan: { enabled: true, run: async (_args, context) => {
+    const { readdir } = await import('node:fs/promises');
+    const files = await readdir(context.stageDirectory);
+    return JSON.stringify([{ RuleID: 'private-key', File: files.find((file) => file.endsWith('.txt')), StartLine: 1, EndLine: 1,
+      StartColumn: 1, EndColumn: 20, Secret: 'sensitive-source-value', Match: 'sensitive-source-value', Entropy: 5 }]);
+  } } });
+  assert.equal(evaluation.summary.secrets.state, 'completed');
+  assert.equal(evaluation.summary.secrets.filesCandidate, 3);
+  assert.ok(evaluation.findings.some((finding) => finding.source === 'gitleaks' && finding.severity === 'CRITICAL'));
+  assert.equal(JSON.stringify(evaluation).includes('sensitive-source-value'), false);
+  assert.ok(buildAnalyzerRuns({ assessmentType: 'code', ...evaluation }).some((run) => run.analyzerId === 'gitleaks:repository'));
+});
+
+test('una plantilla .env con placeholders no se marca como archivo con credenciales', async (t) => {
+  const path = await archive(t, { '.env.example': 'API_KEY=${API_KEY}\nPASSWORD=changeme' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false });
+  assert.equal(evaluation.summary.filesAnalyzed, 1);
+  assert.equal(evaluation.findings.some((finding) => finding.category === 'secret'), false);
+  const productionPath = await archive(t, { '.env.production': 'API_KEY="synthetic-production-value"' });
+  const production = await scanZipSecurity(productionPath, { lookupVulnerabilities: false });
+  assert.equal(production.summary.filesAnalyzed, 1);
+  assert.equal(production.summary.secrets.filesCandidate, 1);
+  assert.ok(production.findings.some((finding) => finding.severity === 'CRITICAL'));
+});

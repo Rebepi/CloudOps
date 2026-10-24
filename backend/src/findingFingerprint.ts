@@ -24,6 +24,7 @@ const SOURCE_PRIORITY: Record<string, number> = {
   osv: 4,
   trivy: 5,
   semgrep: 6,
+  gitleaks: 7,
 };
 
 const SEVERITY_PRIORITY: Record<string, number> = {

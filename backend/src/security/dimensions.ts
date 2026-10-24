@@ -104,6 +104,7 @@ function matches(value: string, pattern: RegExp) {
 }
 
 export function dimensionForFinding(finding: Pick<FindingInput, 'source' | 'category' | 'title' | 'externalId' | 'evidence'>): SecurityDimensionId {
+  if (finding.source === 'gitleaks') return 'data';
   if (finding.source === 'semgrep') return SAST_RULES.find((rule) => rule.id === finding.evidence?.ruleId)?.dimension ?? 'application';
   if (finding.source === 'trivy') return finding.category === 'secret' ? 'data' : 'dependencies';
   if (finding.category === 'license') return 'dependencies';
@@ -338,6 +339,14 @@ export function computeDimensionBreakdown({ assessmentType, findings, summary }:
     }
   }
   if (assessmentType !== 'code') controls.push(...awsControls(summary, findings));
+  const secrets = summary.secrets && typeof summary.secrets === 'object' ? summary.secrets as Record<string, unknown> : {};
+  if (Number(secrets.filesCandidate ?? 0) > 0) {
+    const detected = observedFindings(findings).filter((finding) => finding.source === 'gitleaks' && isNonInformational(finding) && scoreable(finding));
+    const state: ControlState = secrets.state === 'completed' ? detected.length ? 'fail' : 'pass'
+      : secrets.state === 'partial' ? 'partial' : secrets.state === 'failed' ? 'failed' : 'skipped';
+    controls.push({ id: 'gitleaks:repository', dimension: 'data', label: 'Secretos de repositorio: Gitleaks', state,
+      detail: typeof secrets.reason === 'string' ? secrets.reason : `${Number(secrets.filesAnalyzed ?? 0)} archivos enviados al motor; no se verifica actividad de credenciales.` });
+  }
   const sast = summary.sast && typeof summary.sast === 'object' ? summary.sast as Record<string, unknown> : {};
   if (Number(sast.filesCandidate ?? 0) > 0) {
     const dimensions = new Set<SecurityDimensionId>(['application']);
@@ -470,6 +479,13 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
   }
   const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
   const sast = summary.sast && typeof summary.sast === 'object' ? summary.sast as Record<string, unknown> : {};
+  const secrets = summary.secrets && typeof summary.secrets === 'object' ? summary.secrets as Record<string, unknown> : {};
+  if (secrets.state) {
+    runs.push({ analyzerId: 'gitleaks:repository', dimension: 'data', state: ['completed', 'partial', 'failed', 'skipped'].includes(String(secrets.state)) ? secrets.state as AnalyzerRun['state'] : 'failed',
+      itemsAnalyzed: Number(secrets.filesAnalyzed ?? 0), findingsCount: Number(secrets.detections ?? 0), durationMs: null,
+      error: secrets.state === 'failed' ? String(secrets.reason ?? 'Gitleaks fallido') : null,
+      detail: { ...secrets, itemsBasis: 'staged-files-in-successful-dir-scan' } });
+  }
   if (sast.state) {
     runs.push({ analyzerId: 'semgrep:sast', dimension: 'application', state: ['completed', 'partial', 'failed', 'skipped', 'not_supported'].includes(String(sast.state)) ? sast.state as AnalyzerRun['state'] : 'failed',
       itemsAnalyzed: Number(sast.filesAnalyzed ?? 0), findingsCount: findings.filter((finding) => finding.source === 'semgrep').length,

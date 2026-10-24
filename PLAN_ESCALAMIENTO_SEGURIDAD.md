@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado al 2026-10-23: bases de Fases 0 a 4 implementadas, analizadores reales preparados y base SAST de Fase 5 implementada/verificada. Las ampliaciones indicadas en cada fase y las Fases 6 a 9 siguen pendientes.
+Estado al 2026-10-23: bases de Fases 0 a 6 implementadas, con Semgrep, Trivy y Gitleaks preparados y verificados realmente. Las ampliaciones indicadas en cada fase y las Fases 7 a 9 siguen pendientes.
 
-Versión actual: motor `1.7.0`, metodología AWS `2026.14` y metodología de código/full `2026.17`.
+Versión actual: motor `1.8.0`, metodología AWS `2026.14` y metodología de código/full `2026.18`.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -253,6 +253,8 @@ Guía operativa, versiones/digests, resultados y límites: `docs/SAST_Y_ANALIZAD
 
 ### Fase 6: secretos y protección de datos
 
+Estado: base implementada y validada con Gitleaks 8.30.1 real en Docker; ampliaciones de historial y formatos pendientes.
+
 Objetivo: detectar credenciales reales sin exponerlas.
 
 Entregables:
@@ -263,6 +265,18 @@ Entregables:
 - Rotación recomendada y responsable sugerido.
 
 Criterio de salida: cero valores secretos completos almacenados o mostrados.
+
+Implementado:
+
+- Adaptador Gitleaks nativo/Docker y pack `2026.10.1`, que extiende reglas predeterminadas y añade asignaciones/URI de base de datos con entropía mínima explícita.
+- Staging privado, motor Docker sin red, redacción 100 % y normalización que descarta valores, matches, fragmentos y metadatos personales del reporte. El test real comprueba también el reporte redactado antes de normalizarlo.
+- Contexto genérico de pruebas/plantillas informativo; firmas de proveedor/claves privadas permanecen puntuables. Migraciones no ocultan credenciales iniciales por defecto.
+- Nuevos candidatos sensibles PEM/KEY y archivos sin extensión. Plantillas `.env.example` con solo placeholders ya no producen evidencia nativa de archivo con credenciales.
+- Corroboración por ubicación/rangos/tipo con firmas internas y preservación de mayor severidad y observaciones. No se deduplica calculando el valor ni un hash de la credencial.
+- Control de cobertura Gitleaks, métricas/tiempo, panel propio, catálogo autenticado, recomendaciones de rotación y responsables sugeridos sin asignación o revocación automática.
+- Herramienta preparada por digest y habilitada en el entorno local ignorado por Git. Verificación real: cuatro detecciones en cuatro archivos, manteniendo crítica una clave privada de prueba; control negativo con cero coincidencias.
+
+Guía de alcance, privacidad, límites y reproducción: `docs/SECRETOS_REPOSITORIO.md`. El criterio se refiere a valores detectados/cuerpos de evidencia; se conservan rutas originales para triage. No se afirma validación de actividad de credenciales ni análisis de historial Git.
 
 ### Fase 7: infraestructura como código y contenedores
 
@@ -338,8 +352,8 @@ npm run lint
 npm test
 ```
 
-Verificación del 2026-10-23: compilación backend/frontend, lint, 108 pruebas backend y 31 frontend aprobadas. Además se prepararon y ejecutaron Semgrep y Trivy reales en Docker. Semgrep detectó catorce hallazgos en cuatro fuentes y ejercitó las doce reglas; Trivy conservó quince componentes y setenta y siete hallazgos de una imagen real, con estado parcial por dos severidades desconocidas. No se sobrescribieron evaluaciones históricas ni se modificaron políticas/servicios AWS. Los permisos Config adicionales siguen pendientes de validación en vivo.
+Verificación del 2026-10-23: compilación backend/frontend, lint, 119 pruebas backend y 34 frontend aprobadas. Se ejecutaron Semgrep, Trivy y Gitleaks reales en Docker. Semgrep detectó catorce hallazgos en cuatro fuentes y ejercitó doce reglas; Trivy conservó quince componentes y setenta y siete hallazgos de una imagen real, con estado parcial por dos severidades desconocidas. Gitleaks detectó cuatro casos controlados y cero en el control negativo, manteniendo redacción y contexto. No se sobrescribieron evaluaciones históricas ni se modificaron políticas, servicios o credenciales AWS. Los permisos Config adicionales siguen pendientes de validación en vivo.
 
 ## 9. Próximo paso
 
-Continuar con Fase 6 (secretos de repositorio), ampliar el catálogo SAST y resolver las métricas/formatos pendientes. En otros entornos, aplicar migraciones, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera SAST, SBOM, desglose y tiempos.
+Continuar con Fase 7 (infraestructura como código y contenedores), ampliar catálogos y resolver las métricas/formatos pendientes. En otros entornos, aplicar las migraciones existentes, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera SAST, secretos, SBOM, desglose y tiempos.

@@ -1,10 +1,10 @@
 # SAST y analizadores instalados
 
-Motor CloudOps `1.7.0`; metodología código/full `2026.17`. AWS conserva `2026.14`.
+Motor CloudOps actual `1.8.0`; metodología código/full `2026.18`. AWS conserva `2026.14`. La base SAST se introdujo en `1.7.0`.
 
 ## Estado verificado
 
-- Semgrep CE `1.182.0` y Trivy `0.76.1` están disponibles como imágenes Docker fijadas por digest, sin instalaciones globales de Python ni cambios de PATH.
+- Semgrep CE `1.182.0`, Trivy `0.76.1` y Gitleaks `8.30.1` están disponibles como imágenes Docker fijadas por digest, sin instalaciones globales de Python ni cambios de PATH.
 - Semgrep real analizó cuatro fuentes de prueba Python, JavaScript, TypeScript y PHP. Detectó catorce hallazgos que ejercitan las doce reglas del catálogo. Las consultas parametrizadas seguras no produjeron hallazgos y se verificó un parámetro `str` de una ruta FastAPI como fuente de taint.
 - Trivy real analizó `alpine:3.20.3`: quince componentes y setenta y siete hallazgos entre los tipos soportados. El estado fue **parcial**, no limpio ni fallido: dos avisos carecían de severidad utilizable y conservaron una severidad estimada. Estos números corresponden a esa prueba y pueden cambiar con la base de vulnerabilidades.
 - El entorno local quedó con ambos analizadores habilitados en `backend/.env`, que no se versiona. Las plantillas conservan activación explícita para otros despliegues.
@@ -18,13 +18,14 @@ node --import tsx scripts/prepare-security-tools.ts
 node --import tsx scripts/verify-security-tools.ts
 ```
 
-La preparación descarga únicamente las imágenes fijadas, comprueba sus versiones y prepara la base Trivy en el volumen `cloudops-trivy-cache`. El script de verificación ejecuta los analizadores reales; no ejecuta las aplicaciones de prueba. Los fixtures vulnerables están en `backend/tests/fixtures/sast` y se leen como texto.
+La preparación descarga únicamente las tres imágenes fijadas, comprueba sus versiones y prepara la base Trivy en el volumen `cloudops-trivy-cache`. El script de verificación ejecuta los analizadores reales; no ejecuta las aplicaciones de prueba. Los fixtures SAST están en `backend/tests/fixtures/sast` y se leen como texto. Gitleaks usa material de prueba efímero generado en memoria; su guía es `SECRETOS_REPOSITORIO.md`.
 
 Imágenes verificadas:
 
 ```text
 semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
 aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 ```
 
 Las evaluaciones usan `--pull never`; preparar las imágenes es un paso de despliegue, no una descarga implícita durante cada análisis.
@@ -91,6 +92,6 @@ Semgrep CE proporciona análisis intraprocedimental basado en las reglas configu
 
 ## Verificación automatizada
 
-Compilación backend/frontend y lint aprobados. Suite: 108 pruebas backend y 31 frontend. Incluye rechazo de reglas/archivos desconocidos, descarte de fragmentos de código, staging plano, limpieza, exclusión de fixtures, cobertura parcial, límites, corroboración sin doble conteo, captura UTF-8, timeout de procesos propios y presentación de lenguajes no soportados.
+Compilación backend/frontend y lint aprobados. Suite actual: 119 pruebas backend y 34 frontend. Incluye rechazo de reglas/archivos desconocidos, descarte de fragmentos de código, staging plano, limpieza, contexto, cobertura parcial, límites, corroboración sin doble conteo, captura UTF-8, timeout de procesos propios y presentación de lenguajes no soportados.
 
 Las pruebas unitarias no requieren Docker ni red. Los scripts de preparación y verificación son comprobaciones operativas explícitas y sí usan Docker; Trivy requiere red para su base y la imagen remota. No se modificaron políticas IAM ni se habilitaron servicios AWS durante esta entrega.

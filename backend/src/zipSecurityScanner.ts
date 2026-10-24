@@ -8,13 +8,14 @@ import { buildSbom, inspectImages, inspectManifest, inventoryIssues as resolveIn
 import { scanImages, type TrivyOptions } from './security/trivyImages.js';
 import { scanSast, mergeSastFindings, type SastOptions, type SastSource } from './security/sast.js';
 import { SAST_RULES, sourceContext, sourceLanguage } from './security/sastCatalog.js';
+import { scanRepositorySecrets, mergeSecretFindings, type SecretScanOptions, type SecretSource } from './security/repositorySecrets.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 export const BUILTIN_RULE_CATALOG_VERSION = '2026.10.regex1';
 
 export type CodeFinding = {
   externalId: string;
-  source: 'cloudops' | 'osv' | 'trivy' | 'semgrep';
+  source: 'cloudops' | 'osv' | 'trivy' | 'semgrep' | 'gitleaks';
   category: 'archive' | 'secret' | 'code' | 'iac' | 'dependency' | 'license' | 'coverage';
   title: string;
   description: string;
@@ -72,6 +73,7 @@ export type ZipScanOptions = {
   lookupVulnerabilities?: boolean;
   imageScan?: TrivyOptions | null;
   sastScan?: SastOptions | null;
+  secretScan?: SecretScanOptions | null;
 };
 
 const DEFAULTS: Required<ZipScanOptions> = {
@@ -82,11 +84,13 @@ const DEFAULTS: Required<ZipScanOptions> = {
   lookupVulnerabilities: true,
   imageScan: null,
   sastScan: null,
+  secretScan: null,
 };
 
 const TEXT_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs', '.sh', '.ps1',
   '.json', '.yaml', '.yml', '.toml', '.ini', '.conf', '.xml', '.properties', '.env', '.tf', '.tfvars', '.sql', '.md', '.txt',
+  '.cfg', '.config', '.cnf', '.pem', '.key', '.crt', '.cer',
 ]);
 
 const basename = (value: string) => value.replace(/\\/g, '/').split('/').pop() ?? value;
@@ -104,7 +108,8 @@ export function validateArchivePath(fileName: string) {
 
 function isTextCandidate(fileName: string) {
   const lower = basename(fileName).toLowerCase();
-  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock'].includes(lower);
+  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === '.env' || lower.startsWith('.env.') || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock',
+    'id_rsa', 'id_ed25519', 'id_ecdsa', 'credentials', '.npmrc', '.pypirc', '.netrc', '.gitconfig', '.git-credentials'].includes(lower);
 }
 
 function domainsForPath(fileName: string): StaticCoverageDomain['id'][] {
@@ -116,7 +121,7 @@ function domainsForPath(fileName: string): StaticCoverageDomain['id'][] {
   if (dependencyManifestPattern.test(base)) domains.push('dependencies');
   if (['.tf', '.tfvars'].includes(ext) || /(?:cloudformation|template)\.ya?ml$/.test(base)) domains.push('iac');
   if (base === 'dockerfile' || /(?:docker-)?compose.*\.ya?ml$/.test(base)) domains.push('containers');
-  if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(ext) || normalized.includes('/config/')) domains.push('configuration');
+  if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(ext) || base.startsWith('.env.') || normalized.includes('/config/')) domains.push('configuration');
   return domains;
 }
 
@@ -256,7 +261,8 @@ export function analyzeTextFile(fileName: string, text: string, timings?: Analyz
       activeSecrets.length ? `El repositorio contiene un archivo de entorno con ${activeSecrets.length} variable(s) sensible(s) que tienen valores no reconocidos como plantilla.` : 'El paquete contiene un archivo cuyo nombre suele utilizarse para credenciales.',
       fileName, null, 'Retirar el archivo del repositorio, rotar inmediatamente cada credencial expuesta y conservar solamente una plantilla .env.example sin valores.');
     sensitiveFinding.evidence = { file: fileName, populatedSensitiveKeys: activeSecrets };
-    results.push(sensitiveFinding);
+    const template = /^\.env\.(?:example|sample|template)(?:\.|$)/i.test(lowerBase);
+    if (!template || activeSecrets.length > 0) results.push(sensitiveFinding);
   }
   if (timings) recordAnalyzerTiming(timings, 'builtin:secrets', secretStarted, 'cumulative-rule');
   const isTestFixture = sourceContext(fileName) === 'test';
@@ -384,6 +390,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   const manifests: string[] = [];
   const images: ImageReference[] = [];
   const sources: SastSource[] = [];
+  const secretSources: SecretSource[] = [];
+  let secretBytes = 0;
+  let secretFiles = 0;
   let sastBytes = 0;
   let sastFiles = 0;
   const components = new Map<string, DetectedArchitectureComponent>();
@@ -401,7 +410,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[]; sources: SastSource[] }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[]; sources: SastSource[]; secretSources: SecretSource[] }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -414,7 +423,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
       if (!settled) {
         settled = true;
         resolve({
-          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images, sources,
+          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images, sources, secretSources,
           components: [...components.values()],
           domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
           layerFiles,
@@ -444,6 +453,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
         const language = sourceLanguage(entry.fileName);
         const source: SastSource | undefined = language ? { path: entry.fileName, skipReason: options.sastScan?.enabled ? 'Fuente no analizada.' : 'SAST deshabilitado.' } : undefined;
         if (source) sources.push(source);
+        const secretSource: SecretSource | undefined = isTextCandidate(entry.fileName) ? { path: entry.fileName,
+          skipReason: options.secretScan?.enabled ? 'Texto no leído o binario.' : 'Gitleaks deshabilitado.' } : undefined;
+        if (secretSource) secretSources.push(secretSource);
         const ext = extension(entry.fileName) || '[sin extensión]';
         extensions[ext] = (extensions[ext] ?? 0) + 1;
         if (isTextCandidate(entry.fileName)) {
@@ -452,6 +464,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
           if (textBytes + entry.uncompressedSize > options.maxTextBytes) {
             inventoryEntry.analysisStatus = 'text-limit';
             if (source) source.skipReason = 'Límite de texto ZIP.';
+            if (secretSource) secretSource.skipReason = 'Límite de texto ZIP.';
             return zip.readEntry();
           }
           const buffer = await readEntry(zip, entry);
@@ -462,6 +475,10 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             filesAnalyzed += 1;
             layerFiles[layer].analyzedFiles += 1;
             const text = buffer.toString('utf8');
+            if (secretSource && options.secretScan?.enabled) {
+              if (secretFiles >= 2000 || buffer.length > 2 * 1024 * 1024 || secretBytes + buffer.length > 40 * 1024 * 1024) secretSource.skipReason = 'Límite Gitleaks de archivos o bytes.';
+              else { secretSource.text = text; delete secretSource.skipReason; secretFiles++; secretBytes += buffer.length; }
+            }
             if (source && options.sastScan?.enabled) {
               const context = sourceContext(source.path);
               if (context !== 'application') source.skipReason = context;
@@ -524,6 +541,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const archive = await scanEntries(path, options, analyzerTimings, ruleExecutions);
   const archiveDurationMs = Math.round(performance.now() - archiveStarted);
   const staticFindingLimitReached = archive.findings.length >= 500;
+  const secretResult = await scanRepositorySecrets(archive.secretSources, options.secretScan);
+  const { findings: secretFindings, ...secrets } = secretResult;
+  archive.findings = mergeSecretFindings(archive.findings, secretFindings);
+  if (secrets.durationMs !== null) analyzerTimings['gitleaks:repository'] = { durationMs: secrets.durationMs, scope: 'elapsed-service' };
   const sastResult = await scanSast(archive.sources, options.sastScan);
   const { findings: sastFindings, ...sast } = sastResult;
   archive.findings = mergeSastFindings(archive.findings, sastFindings);
@@ -629,6 +650,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
     totalControls++;
     observedControls += trivy.state === 'completed' ? 1 : trivy.state === 'partial' && (trivy.components.length > 0 || trivy.findings.length > 0) ? 0.5 : 0;
   }
+  if (secrets.filesCandidate > 0) {
+    totalControls++;
+    observedControls += secrets.state === 'completed' ? 1 : secrets.state === 'partial' && secrets.filesAnalyzed > 0 ? 0.5 : 0;
+  }
   const coverage = Math.round(observedControls / totalControls * 100);
   const layerLabels: Record<RepositoryLayer, string> = {
     backend: 'Backend', frontend: 'Frontend', infrastructure: 'Infraestructura / Compose', dependencies: 'Dependencias', shared: 'Compartido / raíz',
@@ -651,8 +676,8 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
       scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
-      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs, sast,
-      scanLimits: [...osvLimits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : []),
+      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs, sast, secrets,
+      scanLimits: [...osvLimits, ...secrets.limits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : []),
         ...(archive.images.length >= 100 ? ['image-inventory-limit'] : []), ...(archive.manifestIssues.length >= 200 ? ['manifest-issue-limit'] : []),
         ...(archive.dependencies.length >= 10_000 ? ['dependency-inventory-limit'] : [])],
       filesSkippedByTextLimit: textLimited.length,
@@ -677,7 +702,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
       ],
       methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
-      methodologyVersion: '2026.17',
+      methodologyVersion: '2026.18',
     },
   };
 }

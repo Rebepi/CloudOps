@@ -1,0 +1,25 @@
+title = "CloudOps repository secrets 2026.10.1"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cloudops-assigned-secret"
+description = "High-entropy assigned credential"
+regex = '''(?i)(?:api[_-]?key|secret[_-]?access[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|secret(?:[_-]?key)?|password|passwd)["']?\s*[:=]\s*["']?([A-Za-z0-9_+/=-]{16,128})(?:["'\s;]|$)'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["key", "token", "secret", "password", "passwd"]
+
+[[rules.allowlists]]
+description = "Explicit non-secret placeholders"
+regexTarget = "secret"
+regexes = ['''(?i)^(?:changeme|replace[-_]?me|your[-_](?:api[-_])?key|example|sample|dummy|placeholder)(?:[-_](?:key|token|secret|password|value))*$''']
+
+[[rules]]
+id = "cloudops-db-credentials"
+description = "Database URI with high-entropy credential"
+regex = '''(?i)(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^:\s/@]+:([^@\s/]{12,128})@'''
+secretGroup = 1
+entropy = 3.2
+keywords = ["postgres", "mysql", "mongodb"]

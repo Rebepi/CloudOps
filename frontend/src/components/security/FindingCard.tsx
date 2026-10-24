@@ -50,6 +50,7 @@ const sourceLabel: Record<string, string> = {
   cloudops: 'CloudOps Engine',
   trivy: 'Trivy',
   semgrep: 'Semgrep SAST',
+  gitleaks: 'Gitleaks',
 };
 
 export function FindingCard({
@@ -204,6 +205,8 @@ export function FindingCard({
         )}
 
         <FindingObservations evidence={finding.evidence} />
+        {!finding.owner && typeof finding.evidence.ownerSuggested === 'string' && <p className="mt-2 text-[11px] text-muted">Responsable sugerido: {finding.evidence.ownerSuggested}. No asignado automáticamente.</p>}
+        {finding.source === 'gitleaks' && <p className="mt-2 text-[11px] text-muted">Firma {finding.evidence.confidence === 'generic-entropy' ? 'genérica y entropía' : 'de proveedor/formato'}. La actividad de la credencial no se verifica.</p>}
         {typeof finding.evidence.advisoryUrl === 'string' && /^https:\/\/(?:osv\.dev|nvd\.nist\.gov|trivy\.dev)\//.test(finding.evidence.advisoryUrl) && <a href={finding.evidence.advisoryUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-blue-400 underline">Consultar aviso de vulnerabilidad</a>}
 
         {/* Resource info & metadata footer */}

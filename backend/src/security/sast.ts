@@ -27,7 +27,7 @@ export function mergeSastFindings(builtin: CodeFinding[], sast: CodeFinding[]) {
   const combined = sast.map((finding) => ({ ...finding, evidence: { ...finding.evidence } }));
   for (const finding of builtin) {
     const id = finding.externalId.split(':')[1] ?? '';
-    const match = finding.evidence.scoreExcluded !== true && aliases[id] ? combined.find((candidate) => candidate.resource === finding.resource
+    const match = finding.source === 'cloudops' && finding.evidence.scoreExcluded !== true && aliases[id] ? combined.find((candidate) => candidate.resource === finding.resource
       && candidate.evidence.line === finding.evidence.line && candidate.evidence.cwe === aliases[id]) : undefined;
     if (!match) { remaining.push(finding); continue; }
     const observations = Array.isArray(match.evidence.observations) ? match.evidence.observations : [{ source: match.source, externalId: match.externalId,

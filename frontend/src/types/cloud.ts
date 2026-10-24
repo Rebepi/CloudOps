@@ -41,7 +41,7 @@ export interface HallazgoSeguridad {
   id: string;
   assessmentId: string;
   externalId?: string | null;
-  source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv' | 'trivy' | 'semgrep';
+  source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv' | 'trivy' | 'semgrep' | 'gitleaks';
   category: string;
   dimension?: string | null;
   title: string;
@@ -171,6 +171,10 @@ export interface EvaluacionSeguridad {
   coverage: number;
   confidence: 'low' | 'medium' | 'high';
   summary: {
+    secrets?: { state: string; reason: string | null; filesCandidate: number; filesAnalyzed: number; filesSkipped: number; detections: number;
+      catalog: { version: string; sha256: string | null; extendsDefault: boolean };
+      engine: { name: string; mode: string; image: string | null; version: string | null };
+      skipped: { path: string; reason: string }[] };
     sast?: { state: string; reason: string | null; filesCandidate: number; filesEligible: number; filesAnalyzed: number; filesExcluded: number;
       filesSkipped: number; unsupportedFiles: number; engineVersion: string | null;
       catalog: { version: string; ruleCount: number; sha256: string | null };

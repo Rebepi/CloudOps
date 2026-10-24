@@ -29,3 +29,4 @@ console.log(JSON.stringify({ analyzer: 'trivy', state: trivy.state, components: 
 assert.ok(trivy.state === 'completed' || trivy.state === 'partial');
 assert.ok(trivy.results.some((result) => result.state === 'completed' || result.state === 'partial'));
 assert.ok(trivy.components.length > 0);
+await import('./verify-repository-secrets.js');

@@ -24,6 +24,6 @@ export function detectFindingLayer(finding: Pick<HallazgoSeguridad, 'category' |
 
 export function isRepositoryFinding(finding: Pick<HallazgoSeguridad, 'category' | 'source' | 'resource'>) {
   const resource = (finding.resource ?? '').replace(/\\/g, '/').toLowerCase();
-  return finding.source === 'osv' || finding.source === 'trivy' || finding.source === 'semgrep' || ['code', 'secret', 'dependency', 'iac', 'archive', 'license'].includes(finding.category)
+  return finding.source === 'osv' || finding.source === 'trivy' || finding.source === 'semgrep' || finding.source === 'gitleaks' || ['code', 'secret', 'dependency', 'iac', 'archive', 'license'].includes(finding.category)
     || /(?:^|\/)(?:backend|frontend)(?:\/|$)/.test(resource);
 }

@@ -12,6 +12,7 @@ export function detectAwsService(finding: {
   source?: string;
   category?: string;
 }): ServiceInfo {
+  if (finding.source === 'gitleaks') return { id: 'repository-secrets', name: 'Secretos del repositorio', shortName: 'Secretos', badgeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/20', dotColor: '#f43f5e' };
   if (finding.source === 'semgrep') return { id: 'sast', name: 'Análisis SAST', shortName: 'SAST', badgeClass: 'bg-violet-500/10 text-violet-400 border-violet-500/20', dotColor: '#8b5cf6' };
   if (finding.source === 'trivy') return { id: 'images', name: 'Análisis de imágenes', shortName: 'Imágenes', badgeClass: 'bg-violet-500/10 text-violet-400 border-violet-500/20', dotColor: '#8b5cf6' };
   const text = `${finding.title || ''} ${finding.resource || ''} ${finding.category || ''}`.toLowerCase();
