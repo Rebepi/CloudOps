@@ -1,4 +1,5 @@
-import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
+import { computeFingerprint } from './findingFingerprint.js';
+import { deduplicateSecurityFindings } from './security/canonicalFindings.js';
 
 export type MergeFinding = {
   externalId: string;
@@ -41,7 +42,8 @@ function withFingerprint(finding: MergeFinding): MergeFinding {
 }
 
 export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): MergedAssessment {
-  const combined = deduplicateByFingerprint([...aws.findings, ...code.findings].map(withFingerprint));
+  const input = [...aws.findings, ...code.findings].map(withFingerprint);
+  const combined = deduplicateSecurityFindings(input);
   const counts = combined.reduce<Record<string, number>>((acc, finding) => {
     acc[finding.severity] = (acc[finding.severity] ?? 0) + 1;
     return acc;
@@ -69,9 +71,8 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
       ...code.summary,
       ...aws.summary,
       counts,
-      deduplicatedFindings: aws.summary.deduplicatedFindings !== undefined || code.summary.deduplicatedFindings !== undefined
-        ? Number(aws.summary.deduplicatedFindings ?? 0) + Number(code.summary.deduplicatedFindings ?? 0)
-        : undefined,
+      deduplicatedFindings: input.length - combined.length
+        + Number(aws.summary.deduplicatedFindings ?? 0) + Number(code.summary.deduplicatedFindings ?? 0),
       combined: true,
       components: {
         aws: { score: aws.score, coverage: aws.coverage, confidence: aws.confidence, findings: aws.findings.length },
@@ -79,7 +80,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
       },
       scoreCapsApplied: criticalExposure ? [criticalSecretExposure ? 'critical-secret-exposure:45' : 'critical-finding:45'] : [],
       methodology: 'Evaluación combinada de cuenta AWS, código, dependencias e IaC; puntaje único con deduplicación entre fuentes y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.11',
+      methodologyVersion: '2026.14',
     },
   };
 }

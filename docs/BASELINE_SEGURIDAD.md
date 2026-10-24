@@ -53,7 +53,7 @@ Resultado: **cero hallazgos puntuables**. El motor no demuestra cobertura SAST s
 ### 4.3 AWS: cobertura parcial y ruido de Security Hub
 
 - 9 de 11 controles AWS observados (82 %).
-- Security Hub aporta 361 de los 414 hallazgos, en su mayoría informativos.
+- Security Hub aporta 411 de los 414 hallazgos. La evaluación completa contiene 361 informativos; no deben confundirse ambos conteos.
 - El mismo riesgo puede aparecer dos veces con huellas distintas. Ejemplo: clave de acceso root reportada por `cloudops` y por `security-hub`; no se deduplica entre fuentes.
 - Hallazgos críticos confirmados: clave de acceso root activa, MFA root no observado, recursos expuestos y compartición pública en SSM.
 - RDS, S3, Security Groups, Config e Inspector se consultan por separado; si un servicio falla o no tiene permisos, la cobertura baja, pero el puntaje restante puede seguir pareciendo alto.
@@ -137,3 +137,15 @@ Resultado por dimensión:
 La dimensión de aplicación ya no muestra 100: sus 22 hallazgos están excluidos del puntaje y el estado queda en `partial`. OSV registra 339 dependencias consultadas y 43 hallazgos. Los analizadores AWS, el motor interno y OSV quedan auditables por ejecución.
 
 Criterios pendientes para fases posteriores: deduplicación entre fuentes, reintento de OSV, SAST de flujo de datos y reducción del ruido de Security Hub.
+
+## 10. Revisión posterior de la cobertura (2026-10-23)
+
+Las tablas anteriores son resultados históricos del motor `1.1.0`. La revisión detectó que ese motor contaba los controles `failed` como medidos y podía mostrar cobertura 100 % pese a errores. También infería aprobación IAM/CloudTrail por ausencia de hallazgos, sin exigir evidencia explícita, y mezclaba hallazgos AWS con controles de código.
+
+El motor `1.2.0` corrige esas condiciones: los controles fallidos/omitidos aportan cero cobertura; los parciales, media unidad. Una dimensión sin ningún control completamente medido conserva `score: null`. Los textos dañados por codificación y el conteo de hallazgos excluidos por analizador también se corrigieron.
+
+La deduplicación inicial de root/IAM.4 se verificó con pruebas de integración y con el formato observado en la lectura de la evaluación histórica. No se modificaron los resultados históricos ni se ejecutó una nueva evaluación AWS para esta revisión. El estado detallado y los pendientes están en `../PLAN_ESCALAMIENTO_SEGURIDAD.md`.
+
+La continuación de Fase 2 incorpora MFA root/IAM.9, RDS.2, RDS.3 y S3.8 en el motor `1.3.0`. Se contrastaron los formatos históricos por consultas de lectura y se verificó la fusión con snapshots sintéticos por recurso. Los RDS informativos cuyo recurso es la cuenta completa permanecen separados. Las tablas de esta línea base siguen siendo históricas y no deben reinterpretarse como resultados del motor actualizado.
+
+El motor `1.4.0` añade detalle Config por recurso y correlación Inspector/Security Hub mediante ARN original más recurso. La validación usa clientes simulados y snapshots; no existe todavía una nueva línea base en vivo con los dos permisos Config adicionales. La política y el procedimiento de despliegue están documentados en `AWS_AUDIT_ROLE.md`.

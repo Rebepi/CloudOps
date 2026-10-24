@@ -1,6 +1,10 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado: Fase 0 y Fase 1 implementadas. Fases 2 a 9 pendientes.
+Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 implementada y corregida, Fase 2 iniciada. Fases 3 a 9 pendientes.
+
+Versión actual: motor `1.4.0`, metodología AWS/full `2026.14` y metodología de código `2026.11`.
+
+Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
 ## 1. Objetivo
 
@@ -43,6 +47,7 @@ Estados de cobertura que deben mostrarse por separado:
 - Los hallazgos informativos se conservan para contexto y no penalizan.
 - La evidencia excluida se cuenta y se muestra, pero no se usa para afirmar que el dominio está limpio.
 - Una dimensión sin controles medidos devuelve `score: null`.
+- Un control `failed`, `skipped` o `not_supported` aporta cero cobertura. Un control `partial` aporta media unidad; por sí solo no habilita un puntaje.
 - Una dimensión cuyos únicos hallazgos están excluidos devuelve `score: null` y estado `partial`.
 - Un hallazgo crítico limita el puntaje de su dimensión a 45.
 - El puntaje global existente se conserva para comparabilidad histórica. El desglose por dimensión es aditivo.
@@ -68,7 +73,7 @@ Hallazgos que motivan el resto del plan:
 
 ### Fase 1: dimensiones, controles y analizadores
 
-Estado: completada.
+Estado: base implementada; correcciones de cobertura incorporadas en el motor `1.2.0`.
 
 Entregables:
 
@@ -87,7 +92,27 @@ Criterios cumplidos:
 - Una dimensión con hallazgos excluidos no produce 100.
 - Cada ejecución registra analizadores, elementos revisados y errores.
 
+Correcciones de la revisión del 2026-10-23:
+
+- Los errores de consulta ya no cuentan como controles medidos.
+- La ausencia de evidencia IAM/CloudTrail deja el control omitido, no aprobado.
+- Inspector deshabilitado o sin recursos cubiertos no implica un análisis limpio.
+- Los límites de Security Hub, Config, Inspector, S3 y RDS reducen la cobertura del control afectado. Los errores por bucket S3 también la reducen.
+- Los hallazgos AWS no contaminan el estado de controles del ZIP/repositorio.
+- Los hallazgos excluidos se cuentan en el analizador que los produjo.
+- OSV registra versiones realmente consultadas, no el total inventariado, como elementos revisados.
+- Se repararon textos con codificación incorrecta y se separó visualmente cobertura de ausencia de riesgo.
+- Las comparaciones de puntaje y cobertura exigen igual metodología y versión del motor.
+
+Pendientes de alcance, antes de declarar un motor extensible completo:
+
+- Catálogo versionado de reglas y adaptadores por analizador.
+- Medición de duración real y estados de omisión por límite/lenguaje en el escáner de código.
+- Cobertura específica de reglas de identidad y datos dentro del código, además de los dominios generales actuales.
+
 ### Fase 2: normalización y deduplicación entre fuentes
+
+Estado: correlación implementada para identidades conocidas de CloudOps, Security Hub, Config e Inspector. La ampliación a todos los controles y formatos sigue pendiente. AWS y full usan metodología `2026.14`; código conserva `2026.11`.
 
 Objetivo: evitar que el mismo riesgo se cuente dos veces.
 
@@ -99,6 +124,41 @@ Entregables:
 - Pruebas con casos reales de la cuenta de prueba.
 
 Criterio de salida: el hallazgo de clave de acceso root aparece una sola vez con trazabilidad a ambas fuentes.
+
+Avance verificado:
+
+- Catálogo explícito en `backend/src/security/controlCatalog.ts`, compartido por la deduplicación y la clasificación de dimensiones.
+- Identidad canónica para cinco controles, limitada a cuenta, partición y recurso comprobables:
+
+| Control CloudOps | Security Hub | Alcance |
+|---|---|---|
+| Claves de acceso root | `IAM.4` | Cuenta global |
+| MFA root | `IAM.9` | Cuenta global; no se fusiona con MFA hardware `IAM.6` |
+| RDS públicamente accesible | `RDS.2` | Cuenta, región e instancia |
+| RDS sin cifrado | `RDS.3` | Cuenta, región e instancia |
+| Bloqueo público de S3 incompleto | `S3.8` | Cuenta y bucket |
+
+- Una sola penalización; se conserva la mayor severidad. Los empates siguen la prioridad de fuente existente.
+- `evidence.observations` conserva identificadores, recursos, recomendaciones y evidencia de cada fuente.
+- La tarjeta del hallazgo muestra las fuentes y recomendaciones originales en un panel desplegable.
+- Las huellas anteriores se consultan como alias al recuperar el ciclo de vida del hallazgo.
+- Pruebas de idempotencia, orden de entrada, separación de cuentas/particiones/regiones/recursos y atribución de analizadores, incluida una evaluación AWS sintética completa de RDS y S3.
+- La forma de `IAM.4` se contrastó mediante lectura de la ejecución histórica `b034d1de-049d-431e-93e6-d1286fce3688`. La prueba de integración reproduce ese formato sin llamadas AWS nuevas.
+- También se consultaron los formatos históricos de `RDS.2`, `RDS.3` y `S3.8`. Los RDS informativos con un identificador de cuenta como recurso no se tratan como instancias ni se fusionan con vulnerabilidades.
+
+Continuación implementada:
+
+- Config consulta `DescribeConfigRules` y `GetComplianceDetailsByConfigRule` para obtener la identidad administrada de la regla y sus recursos individuales. Los nombres personalizados de regla no se usan como equivalencia.
+- Los cinco controles de la tabla admiten también Config mediante `IAM_ROOT_ACCESS_KEY_CHECK`, `ROOT_ACCOUNT_MFA_ENABLED`, `RDS_INSTANCE_PUBLIC_ACCESS_CHECK`, `RDS_STORAGE_ENCRYPTED` y `S3_BUCKET_LEVEL_PUBLIC_ACCESS_PROHIBITED`, con validación del tipo de recurso.
+- Cada recurso no conforme produce su hallazgo. Cuando hay detalle, el resumen agregado no vuelve a penalizarlo. Si el detalle es parcial se registra un hallazgo de cobertura excluido del puntaje; si no hay detalle, se conserva el resumen sin fusionarlo por su nombre.
+- El recolector limita metadatos a cinco páginas y detalle a veinte reglas, con dos páginas de cien resultados por regla. Los errores de permisos, los límites y los resultados parciales quedan visibles y reducen cobertura.
+- Inspector y Security Hub se vinculan por el mismo ARN upstream `inspector2:...:finding/...` y el mismo recurso. Se normalizan identificadores EC2 y sus ARN; para ECR/Lambda se exige el mismo ARN. No se fusionan hallazgos únicamente por CVE o título.
+- Las observaciones conservan categoría y título originales; un ganador de Security Hub no elimina la atribución ni el fallo del control Inspector.
+- La política versionada incorpora `config:DescribeConfigRules` y `config:GetComplianceDetailsByConfigRule`. El despliegue debe actualizar el rol para habilitar el detalle. Esta revisión no modificó políticas en la cuenta AWS.
+
+Pendiente: equivalencias para otros controles y formatos. Un identificador físico RDS de Config distinto del nombre/ARN observado no se resuelve por similitud; requiere enriquecimiento de inventario. Una imagen ECR identificada solo por digest no se equipara a un ARN de repositorio. Los documentos OCSF que no conserven el ARN original de Inspector permanecen separados. Los hallazgos sin equivalencia demostrada conservan sus huellas originales.
+
+Referencia de formato Inspector/ASFF: https://docs.aws.amazon.com/inspector/latest/user/securityhub-integration.html (consulta del 2026-10-23). La normalización OCSF conserva el ARN cuando viene en `finding_info.uid`; no lo infiere de eventos relacionados.
 
 ### Fase 3: cobertura confiable y reintentos
 
@@ -223,8 +283,11 @@ npm run migrate
 cd ..\frontend
 npm run build
 npm run lint
+npm test
 ```
+
+Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 59 pruebas backend y 21 pruebas frontend aprobadas. La validación de deduplicación y del recolector Config usa snapshots y clientes simulados; las consultas a PostgreSQL fueron solo de lectura. No se recalcularon ni sobrescribieron evaluaciones históricas ni se verificaron los nuevos permisos contra AWS en vivo.
 
 ## 9. Próximo paso
 
-Ejecutar la Fase 2: deduplicación entre fuentes y normalización canónica de hallazgos. Antes de integrar nuevas herramientas, la misma clave de acceso root no debe aparecer dos veces ni inflar el conteo.
+Abordar reintentos OSV y tiempos por analizador de la Fase 3, completar el catálogo de reglas de código de la Fase 1 y ampliar progresivamente las equivalencias pendientes. Para validar el detalle Config en vivo, el despliegue debe aplicar primero los dos permisos nuevos de lectura. Las evaluaciones históricas se conservan; una nueva ejecución genera el desglose corregido.

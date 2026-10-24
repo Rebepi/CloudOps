@@ -1,5 +1,7 @@
 # Implementación de análisis de seguridad en CloudOps
 
+> Actualización de seguimiento (2026-10-23): el avance vigente está en `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva la implementación y las observaciones históricas del 2026-10-14. El motor de dimensiones es `1.4.0`; AWS/full usan metodología `2026.14`. Incluye cobertura corregida, cinco controles equivalentes entre CloudOps/Security Hub/Config y correlación Inspector por ARN original y recurso. Las fuentes originales son visibles en la tarjeta del hallazgo. Config obtiene detalle por recurso con límites y errores explícitos. Los permisos nuevos de lectura están en la política versionada; aún requieren aplicarse al rol desplegado y validarse en vivo. La deduplicación de todos los formatos y controles no está completada.
+
 Última actualización: 2026-10-14  
 Cuenta de prueba: `143924590537`  
 Región controlada: `us-east-1`

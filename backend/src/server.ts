@@ -90,19 +90,20 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
 }
 
 async function loadComparison(projectId: string, assessmentId: string) {
-  const current = await db.query<{ assessmentType: string; score: number | null; coverage: number; startedAt: Date }>(`
-    SELECT assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt"
+  const current = await db.query<{ assessmentType: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string }>(`
+    SELECT assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion"
     FROM security_assessments WHERE id=$1 AND project_id=$2 AND status='completed'
   `, [assessmentId, projectId]);
   if (!current.rowCount) return null;
   const assessment = current.rows[0]!;
-  const previous = await db.query<{ id: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string }>(`
-    SELECT id, score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion"
+  const previous = await db.query<{ id: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string }>(`
+    SELECT id, score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion"
     FROM security_assessments
     WHERE project_id=$1 AND assessment_type=$2 AND status='completed' AND started_at < $3
     ORDER BY started_at DESC LIMIT 1
   `, [projectId, assessment.assessmentType, assessment.startedAt]);
   const previousRow = previous.rows[0] ?? null;
+  const comparable = Boolean(previousRow && previousRow.methodologyVersion === assessment.methodologyVersion && previousRow.engineVersion === assessment.engineVersion);
   const findingsOf = async (id: string) => (await db.query(`
     SELECT id, fingerprint, external_id AS "externalId", source, category, title, severity, status, resource, framework
     FROM security_findings WHERE assessment_id=$1
@@ -126,9 +127,9 @@ async function loadComparison(projectId: string, assessmentId: string) {
       resolvedCount: resolvedFindings.length,
       recurringCount: recurring.length,
       severityChangedCount: severityChanged.length,
-      scoreDelta: previousRow ? (assessment.score ?? 0) - (previousRow.score ?? 0) : null,
-      coverageDelta: previousRow ? assessment.coverage - previousRow.coverage : null,
-      comparable: Boolean(previousRow),
+      scoreDelta: comparable && previousRow && assessment.score !== null && previousRow.score !== null ? assessment.score - previousRow.score : null,
+      coverageDelta: comparable && previousRow ? assessment.coverage - previousRow.coverage : null,
+      comparable,
     },
     newFindings,
     resolvedFindings,
@@ -169,7 +170,10 @@ async function insertFindings(client: PoolClient, projectId: string, assessmentI
   const previous = await previousLifecycleByFingerprint(projectId, assessmentType, assessmentId);
   for (const finding of findings) {
     const fingerprint = finding.fingerprint ?? computeFingerprint(finding);
-    const prior = previous.get(fingerprint);
+    const observations = Array.isArray(finding.evidence.observations) ? finding.evidence.observations : [];
+    const aliases = observations.flatMap((observation) => typeof observation === 'object' && observation !== null
+      && 'fingerprint' in observation && typeof observation.fingerprint === 'string' ? [observation.fingerprint] : []);
+    const prior = previous.get(fingerprint) ?? aliases.map((alias) => previous.get(alias)).find(Boolean);
     let status = finding.status ?? 'open';
     let owner: string | null = null;
     let dueDate: string | null = null;
@@ -225,7 +229,7 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
       dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
     WHERE id=$1
   `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
-    String(evaluation.summary.methodologyVersion ?? '2026.11'), JSON.stringify(breakdown), JSON.stringify(controls), '1.1.0']);
+    String(evaluation.summary.methodologyVersion ?? '2026.11'), JSON.stringify(breakdown), JSON.stringify(controls), '1.4.0']);
   await client.query('DELETE FROM assessment_analyzers WHERE assessment_id=$1', [assessmentId]);
   for (const run of analyzers) {
     await client.query(`

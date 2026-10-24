@@ -68,3 +68,11 @@ test('normalizeSecurityHubV2Finding convierte un documento OCSF al formato inter
     resource: 'arn:aws:s3:::example',
   });
 });
+
+test('normalización OCSF conserva el ARN upstream de Inspector para correlación exacta', () => {
+  const arn = 'arn:aws:inspector2:us-east-1:123456789012:finding/12345678-1234-1234-1234-123456789abc';
+  const finding = normalizeSecurityHubV2Finding({ finding_info: { uid: arn, title: 'CVE-2022-34918 - kernel' },
+    severity: 'High', resources: [{ uid: 'arn:aws:ec2:us-east-1:123456789012:i-0f1ed287081bdf0fb' }] });
+  assert.equal(finding.id, arn);
+  assert.equal(finding.resource, 'arn:aws:ec2:us-east-1:123456789012:i-0f1ed287081bdf0fb');
+});

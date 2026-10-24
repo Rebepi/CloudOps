@@ -24,6 +24,12 @@ La confianza utiliza el principal de la cuenta acompañado por `aws:PrincipalArn
 
 Las acciones usan `Resource: "*"` porque muchas APIs de inventario y postura no admiten restricciones por ARN. La política no contiene acciones de creación, actualización, eliminación ni activación de servicios.
 
+### Detalle por recurso de AWS Config (motor 1.4.0)
+
+El rol debe incluir las acciones de lectura `config:DescribeConfigRules` y `config:GetComplianceDetailsByConfigRule`, agregadas a `aws/cloudops-audit-policy.json`. Actualiza la política del rol durante el despliegue antes de validar esta funcionalidad en vivo. Cambiar el archivo versionado no actualiza automáticamente IAM.
+
+Si faltan esos permisos, CloudOps conserva el inventario y el resumen de cumplimiento disponibles, registra el error y marca la cobertura como parcial. No infiere identidades de recursos ni equivalencias a partir del nombre de una regla. El recolector limita el detalle a veinte reglas no conformes y dos páginas de cien resultados por regla; los límites alcanzados también quedan registrados.
+
 ## Comprobación
 
 La API `GET /api/v1/aws/connection` devuelve el tipo de principal, si el rol fue asumido y si la conexión está lista. Cuando STS identifica la cuenta root, el backend solo permite consultar `GET /api/v1/aws/identity` y `GET /api/v1/aws/connection`; el resto de consultas y evaluaciones AWS quedan bloqueadas. El análisis ZIP continúa disponible porque no necesita credenciales AWS.

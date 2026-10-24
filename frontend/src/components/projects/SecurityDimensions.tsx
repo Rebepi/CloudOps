@@ -8,7 +8,7 @@ const dimensionStateLabel: Record<DimensionSeguridad['state'], string> = {
 };
 
 const controlStateLabel: Record<ControlDimensionSeguridad['state'], string> = {
-  pass: 'Aprobado',
+  pass: 'Sin hallazgos',
   fail: 'Con hallazgos',
   partial: 'Parcial',
   not_applicable: 'No aplica',
@@ -25,6 +25,10 @@ const controlStateClass: Record<ControlDimensionSeguridad['state'], string> = {
   not_supported: 'text-muted',
   failed: 'text-rose-400',
   skipped: 'text-amber-400',
+};
+
+const analyzerStateLabel: Record<AnalizadorEvaluacion['state'], string> = {
+  completed: 'Completado', partial: 'Parcial', failed: 'Fallido', skipped: 'Omitido', not_supported: 'No soportado',
 };
 
 function scoreClass(score: number | null) {
@@ -56,7 +60,7 @@ export function SecurityDimensions({ dimensions = [], analyzers = [] }: { dimens
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              {dimension.state === 'measured' ? <ShieldCheck size={15} className="text-emerald-400" /> : dimension.state === 'partial' ? <ShieldAlert size={15} className="text-amber-400" /> : <CircleHelp size={15} className="text-muted" />}
+              {dimension.state === 'not_measured' ? <CircleHelp size={15} className="text-muted" /> : dimension.state === 'partial' || (dimension.score !== null && dimension.score < 80) ? <ShieldAlert size={15} className={scoreClass(dimension.score)} /> : <ShieldCheck size={15} className="text-emerald-400" />}
               <h4 className="text-xs font-bold text-ink">{dimension.label}</h4>
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted">{dimension.description}</p>
@@ -99,8 +103,8 @@ export function SecurityDimensions({ dimensions = [], analyzers = [] }: { dimens
           <thead className="text-muted"><tr><th className="pb-2 font-semibold">Analizador</th><th className="pb-2 font-semibold">Dimensión</th><th className="pb-2 font-semibold">Estado</th><th className="pb-2 text-right font-semibold">Elementos</th><th className="pb-2 text-right font-semibold">Hallazgos</th></tr></thead>
           <tbody className="divide-y divide-line">{analyzers.map((analyzer) => <tr key={analyzer.analyzerId}>
             <td className="py-2 font-mono text-[10px] text-ink">{analyzer.analyzerId}</td>
-            <td className="py-2 text-muted">{analyzer.dimension}</td>
-            <td className={`py-2 ${analyzer.state === 'failed' ? 'text-rose-400' : analyzer.state === 'completed' ? 'text-emerald-400' : 'text-amber-400'}`}>{analyzer.state}</td>
+            <td className="py-2 text-muted">{dimensions.find((dimension) => dimension.id === analyzer.dimension)?.label ?? analyzer.dimension}</td>
+            <td className={`py-2 ${analyzer.state === 'failed' ? 'text-rose-400' : analyzer.state === 'completed' ? 'text-emerald-400' : 'text-amber-400'}`}>{analyzerStateLabel[analyzer.state]}</td>
             <td className="py-2 text-right text-muted">{analyzer.itemsAnalyzed}</td>
             <td className="py-2 text-right text-muted">{analyzer.findingsCount}</td>
           </tr>)}</tbody>

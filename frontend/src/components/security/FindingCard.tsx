@@ -16,6 +16,7 @@ import { api } from '../../lib/api';
 import type { EstadoHallazgo, EventoHallazgo, HallazgoSeguridad } from '../../types/cloud';
 import { detectAwsService } from './findingServiceHelper';
 import { detectFindingLayer, findingLayerLabels, isRepositoryFinding } from './findingLayerHelper';
+import { FindingObservations } from './FindingObservations';
 
 const severityStyle: Record<HallazgoSeguridad['severity'], string> = {
   CRITICAL: 'bg-rose-500/15 text-rose-500 border-rose-500/30 ring-1 ring-rose-500/20 font-black',
@@ -198,6 +199,8 @@ export function FindingCard({
             </div>
           </div>
         )}
+
+        <FindingObservations evidence={finding.evidence} />
 
         {/* Resource info & metadata footer */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3 text-[11px] text-muted">

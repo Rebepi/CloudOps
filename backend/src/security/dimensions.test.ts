@@ -36,7 +36,7 @@ test('SAST sin hallazgos puntuables no se presenta como aprobado', () => {
   });
   const application = result.find((dimension) => dimension.id === 'application')!;
   assert.equal(application.score, null);
-  assert.equal(application.coverage, 100);
+  assert.equal(application.coverage, 50);
   assert.equal(application.state, 'partial');
   assert.equal(application.scoreExcludedFindings, 1);
   assert.equal(application.counts.CRITICAL, 1);
@@ -56,8 +56,61 @@ test('dependencias parciales por OSV fallido no se presentan como aprobadas', ()
   const dependencies = result.find((dimension) => dimension.id === 'dependencies')!;
   assert.equal(dependencies.coverage, 50);
   assert.equal(dependencies.state, 'partial');
-  assert.equal(dependencies.score, 45);
+  assert.equal(dependencies.score, null);
   assert.equal(dependencies.controls[0]?.state, 'partial');
+});
+
+test('fuentes fallidas o no registradas nunca producen cobertura completa ni puntaje 100', () => {
+  const summary = { securityHubAvailable: false, configAvailable: false, inspectorAvailable: false,
+    s3Available: false, networkAvailable: false, rdsAvailable: false };
+  for (const dimension of computeDimensionBreakdown({ assessmentType: 'aws-account', findings: [], summary })) {
+    assert.equal(dimension.coverage, 0, dimension.id);
+    assert.equal(dimension.score, null, dimension.id);
+    assert.equal(dimension.state, 'not_measured', dimension.id);
+  }
+});
+
+test('un hallazgo AWS no marca como fallido un control de código en una evaluación full', () => {
+  const result = computeDimensionBreakdown({ assessmentType: 'full',
+    findings: [{ source: 'security-hub', category: 'cloud-posture', title: 'S3 public bucket', severity: 'HIGH' }],
+    summary: { coverageMatrix: [{ id: 'secrets', label: 'Secretos', status: 'measured', files: 1, detail: 'Revisado' }] } });
+  assert.equal(result.find((dimension) => dimension.id === 'data')!.controls.find((control) => control.id === 'code:secrets')!.state, 'pass');
+});
+
+test('un hallazgo JWT de código no se atribuye al analizador IAM de AWS', () => {
+  const runs = buildAnalyzerRuns({ assessmentType: 'full', summary: { users: 1 }, findings: [
+    { source: 'cloudops', category: 'code', title: 'JWT inseguro', externalId: 'cloudops:jwt-signature-disabled:example', severity: 'HIGH' },
+  ] });
+  assert.equal(runs.find((run) => run.analyzerId === 'aws:iam')!.findingsCount, 0);
+});
+
+test('Inspector sin cobertura, truncamientos y errores de S3 no se presentan como aprobados', () => {
+  const summary = { inspectorAvailable: true, inspectorCoveredResources: 0, s3Available: true, s3Buckets: 2,
+    s3InspectionErrors: 1, securityHubAvailable: true, securityHubTruncated: true };
+  const result = computeDimensionBreakdown({ assessmentType: 'aws-account', findings: [], summary });
+  assert.equal(result.find((dimension) => dimension.id === 'dependencies')!.score, null);
+  assert.equal(result.find((dimension) => dimension.id === 'data')!.controls[0]!.state, 'partial');
+  assert.equal(result.find((dimension) => dimension.id === 'detection')!.controls.find((control) => control.id === 'aws:security-hub')!.state, 'partial');
+  const runs = buildAnalyzerRuns({ assessmentType: 'aws-account', findings: [], summary });
+  assert.equal(runs.find((run) => run.analyzerId === 'aws:inspector')!.state, 'partial');
+});
+
+test('OSV fallido no declara todas las dependencias como revisadas', () => {
+  const runs = buildAnalyzerRuns({ assessmentType: 'code', findings: [], summary: { dependencyCount: 339, vulnerabilitiesChecked: 0, osvAvailable: false } });
+  assert.equal(runs.find((run) => run.analyzerId === 'osv')!.itemsAnalyzed, 0);
+});
+
+test('vulnerabilidades OSV marcan el control de dependencias como con hallazgos', () => {
+  const result = computeDimensionBreakdown({ assessmentType: 'code',
+    findings: [{ source: 'osv', category: 'dependency', title: 'CVE en paquete', severity: 'HIGH' }],
+    summary: { coverageMatrix: [{ id: 'dependencies', label: 'Dependencias', status: 'measured', files: 1, detail: 'OSV consultado' }] } });
+  assert.equal(result.find((dimension) => dimension.id === 'dependencies')!.controls[0]!.state, 'fail');
+});
+
+test('contabiliza hallazgos excluidos en el analizador que los detectó', () => {
+  const runs = buildAnalyzerRuns({ assessmentType: 'code', summary: codeSummary,
+    findings: [{ source: 'cloudops', category: 'code', title: 'SQL concatenado', severity: 'INFORMATIONAL', evidence: { scoreExcluded: true } }] });
+  assert.equal(runs[0]!.findingsCount, 1);
 });
 
 test('full combina controles de código y AWS y conserva estados fallidos', () => {

@@ -1,17 +1,25 @@
-import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
+import { computeFingerprint } from './findingFingerprint.js';
+import { deduplicateSecurityFindings } from './security/canonicalFindings.js';
 import { frameworkFor, isApplicableForScore } from './findingFramework.js';
 
 export type AwsSecuritySnapshot = {
+  accountId?: string;
+  partition?: string;
+  region?: string;
+  truncated?: boolean;
   accountSummary: Record<string, number>;
   identities: { name?: string; arn?: string; mfa: boolean }[];
   roles: { name?: string; arn?: string }[];
   trails: { name?: string; arn?: string; isLogging?: boolean | null }[];
-  findings: { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string }[];
+  findings: { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string; recommendation?: string }[];
   findingsError: string | null;
   findingsTruncated?: boolean;
   config: {
     recorders: { arn?: string; name?: string; servicePrincipal?: string; recordingScope?: string; recording: boolean; lastStatus?: string; lastErrorCode?: string; lastStatusChangeTime?: string }[];
-    rules: { name?: string; complianceType?: string; nonCompliantResources: number; capExceeded: boolean }[];
+    rules: { name?: string; complianceType?: string; nonCompliantResources: number; capExceeded: boolean;
+      sourceIdentifier?: string; resources?: { id: string; type: string; annotation?: string }[];
+      detailError?: string | null; detailsTruncated?: boolean }[];
+    metadataError?: string | null;
     truncated: boolean;
   } | null;
   configError: string | null;
@@ -124,7 +132,7 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       title: finding.title ?? 'Hallazgo de Security Hub',
       description: finding.description ?? `${finding.severity ?? 'Sin severidad'} · ${finding.status ?? 'Sin estado'}`,
       severity: normalizeSeverity(finding.severity), status: 'open', resource: finding.resource ?? null,
-      recommendation: 'Revisar la evidencia y la remediación indicada por AWS Security Hub.',
+      recommendation: finding.recommendation ?? 'Revisar la evidencia y la remediación indicada por AWS Security Hub.',
       evidence: { workflowStatus: finding.status ?? null },
     });
   }
@@ -150,12 +158,33 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       });
     }
     for (const rule of snapshot.config.rules.filter((item) => item.complianceType === 'NON_COMPLIANT')) {
+      if (rule.resources?.length) {
+        for (const resource of rule.resources) {
+          findings.push({
+            externalId: `aws-config:${rule.name ?? 'unknown'}:${resource.type}:${resource.id}`,
+            source: 'aws-config', category: 'compliance', title: `Regla no conforme: ${rule.name ?? 'sin nombre'}`,
+            description: resource.annotation ?? `AWS Config reporta el recurso ${resource.id} como no conforme.`, severity: 'MEDIUM', status: 'open',
+            resource: resource.id, recommendation: 'Corregir la configuración del recurso y volver a evaluar la regla de AWS Config.',
+            evidence: { complianceType: rule.complianceType, sourceIdentifier: rule.sourceIdentifier ?? null,
+              ruleName: rule.name ?? null, resourceType: resource.type, resourceId: resource.id },
+          });
+        }
+        if (rule.detailsTruncated || rule.detailError) {
+          findings.push({ externalId: `aws-config:incomplete-rule:${rule.name ?? 'unknown'}`, source: 'aws-config', category: 'coverage',
+            title: `Detalle incompleto de AWS Config: ${rule.name ?? 'sin nombre'}`, description: rule.detailError ?? 'Se alcanzó un límite de consulta por regla.',
+            severity: 'LOW', status: 'open', resource: rule.name ?? null,
+            recommendation: 'Revisar permisos y límites para consultar todos los recursos no conformes.',
+            evidence: { scoreExcluded: true, observedResources: rule.resources.length, nonCompliantResources: rule.nonCompliantResources } });
+        }
+        continue;
+      }
       findings.push({
         externalId: `aws-config:${rule.name ?? 'unknown'}`, source: 'aws-config', category: 'compliance',
         title: `Regla no conforme: ${rule.name ?? 'sin nombre'}`,
         description: `${rule.nonCompliantResources} recurso(s) reportado(s) como no conformes.`, severity: 'MEDIUM', status: 'open',
         resource: rule.name ?? null, recommendation: 'Revisar los recursos evaluados por la regla, corregir la configuración y volver a evaluar.',
-        evidence: { complianceType: rule.complianceType, nonCompliantResources: rule.nonCompliantResources, capExceeded: rule.capExceeded },
+        evidence: { complianceType: rule.complianceType, nonCompliantResources: rule.nonCompliantResources, capExceeded: rule.capExceeded,
+          detailError: rule.detailError ?? null, detailsTruncated: rule.detailsTruncated ?? false },
       });
     }
   }
@@ -251,10 +280,11 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
 
   const withMetadata = findings.map((finding) => ({
     ...finding,
+    evidence: { ...finding.evidence, accountId: snapshot.accountId ?? null, partition: snapshot.partition ?? null, region: snapshot.region ?? null },
     fingerprint: computeFingerprint(finding),
     framework: frameworkFor(finding.source, finding.category),
   }));
-  const deduplicated = deduplicateByFingerprint(withMetadata);
+  const deduplicated = deduplicateSecurityFindings(withMetadata);
 
   const counts = deduplicated.reduce<Record<FindingSeverity, number>>((acc, finding) => {
     acc[finding.severity] += 1;
@@ -285,8 +315,12 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       deduplicatedFindings: findings.length - deduplicated.length,
       excludedFromScore,
       users: snapshot.identities.length,
+      iamTruncated: Boolean(snapshot.truncated),
+      accountMfaEnabled: snapshot.accountSummary.AccountMFAEnabled ?? null,
+      rootAccessKeysPresent: snapshot.accountSummary.AccountAccessKeysPresent ?? null,
       roles: snapshot.roles.length,
       trails: snapshot.trails.length,
+      cloudtrailInspectionErrors: snapshot.trails.filter((trail) => trail.isLogging == null).length,
       securityHubAvailable: !snapshot.findingsError,
       securityHubError: snapshot.findingsError,
       securityHubTruncated: Boolean(snapshot.findingsTruncated),
@@ -294,23 +328,32 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       configError: snapshot.configError,
       configRecorders: snapshot.config?.recorders.length ?? 0,
       configRules: snapshot.config?.rules.length ?? 0,
+      configTruncated: Boolean(snapshot.config?.truncated || snapshot.config?.metadataError
+        || snapshot.config?.rules.some((rule) => rule.detailsTruncated || rule.detailError)),
+      configMetadataError: snapshot.config?.metadataError ?? null,
+      configDetailErrors: snapshot.config?.rules.filter((rule) => rule.detailError).map((rule) => `${rule.name ?? 'unknown'}: ${rule.detailError}`) ?? [],
+      configObservedResources: snapshot.config?.rules.reduce((total, rule) => total + (rule.resources?.length ?? 0), 0) ?? 0,
       inspectorAvailable: !snapshot.inspectorError && Boolean(snapshot.inspector),
       inspectorStatus: snapshot.inspector?.accountStatus ?? null,
       inspectorError: snapshot.inspectorError,
       inspectorCoveredResources: snapshot.inspector?.coverage.length ?? 0,
       inspectorFindings: snapshot.inspector?.findings.length ?? 0,
+      inspectorTruncated: Boolean(snapshot.inspector?.truncated),
       s3Available: !snapshot.s3Error && Boolean(snapshot.s3),
       s3Error: snapshot.s3Error ?? null,
       s3Buckets: snapshot.s3?.buckets.length ?? 0,
+      s3Truncated: Boolean(snapshot.s3?.truncated),
+      s3InspectionErrors: snapshot.s3?.buckets.filter((bucket) => bucket.inspectionError || bucket.publicPolicy === null || bucket.blockPublicAccess === null).length ?? 0,
       networkAvailable: !snapshot.networkError && Boolean(snapshot.network),
       networkError: snapshot.networkError ?? null,
       securityGroups: snapshot.network?.securityGroups.length ?? 0,
       rdsAvailable: !snapshot.rdsError && Boolean(snapshot.rds),
       rdsError: snapshot.rdsError ?? null,
       rdsInstances: snapshot.rds?.instances.length ?? 0,
+      rdsTruncated: Boolean(snapshot.rds?.truncated),
       scoreCapsApplied: criticalExposure ? ['critical-finding:45'] : [],
       methodology: 'Controles propios de CloudOps sobre IAM, CloudTrail, S3, Security Groups y RDS, más Security Hub V2/CSPM, AWS Config e Inspector; puntaje con evidencia observada, deduplicación y exclusión de cobertura opcional.',
-      methodologyVersion: '2026.11',
+      methodologyVersion: '2026.14',
     },
     findings: deduplicated,
   };

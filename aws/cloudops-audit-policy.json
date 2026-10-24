@@ -28,6 +28,8 @@
         "cloudtrail:GetTrailStatus",
         "cloudtrail:LookupEvents",
         "config:DescribeComplianceByConfigRule",
+        "config:DescribeConfigRules",
+        "config:GetComplianceDetailsByConfigRule",
         "config:DescribeConfigurationRecorderStatus",
         "config:ListConfigurationRecorders",
         "iam:GetAccountSummary",

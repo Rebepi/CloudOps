@@ -712,13 +712,13 @@ export default function ProjectDetail() {
                 </div>
                 <div className="rounded-xl bg-canvas p-3 border border-line/60">
                   <strong className={`block text-xl font-black ${(comparison.summary.scoreDelta ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                    {(comparison.summary.scoreDelta ?? 0) > 0 ? `+${comparison.summary.scoreDelta}` : comparison.summary.scoreDelta ?? 0}
+                    {(comparison.summary.scoreDelta ?? 0) > 0 ? `+${comparison.summary.scoreDelta}` : comparison.summary.scoreDelta ?? '—'}
                   </strong>
                   <span className="text-muted font-medium">Δ puntaje</span>
                 </div>
                 <div className="rounded-xl bg-canvas p-3 border border-line/60">
                   <strong className={`block text-xl font-black ${(comparison.summary.coverageDelta ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                    {(comparison.summary.coverageDelta ?? 0) > 0 ? `+${comparison.summary.coverageDelta}` : comparison.summary.coverageDelta ?? 0}%
+                    {comparison.summary.coverageDelta === null ? '—' : `${comparison.summary.coverageDelta > 0 ? '+' : ''}${comparison.summary.coverageDelta}%`}
                   </strong>
                   <span className="text-muted font-medium">Δ cobertura</span>
                 </div>
@@ -728,6 +728,8 @@ export default function ProjectDetail() {
                 No hay una evaluación anterior comparable de este tipo. Esta ejecución servirá como línea base.
               </p>
             )}
+
+            {comparison.previous && !comparison.summary.comparable && <p className="mt-3 text-xs text-amber-400">El motor o la metodología cambió. Los puntajes y la cobertura no son comparables directamente; las diferencias de hallazgos pueden incluir cambios de normalización.</p>}
 
             {/* Redesigned New Findings Component */}
             {comparison.previous && comparison.newFindings.length > 0 && (

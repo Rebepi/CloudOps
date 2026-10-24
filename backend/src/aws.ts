@@ -8,7 +8,7 @@ import { CostExplorerClient, GetCostAndUsageCommand, type ResultByTime } from '@
 import { CloudTrailClient, LookupEventsCommand, DescribeTrailsCommand, GetTrailStatusCommand } from '@aws-sdk/client-cloudtrail';
 import { IAMClient, ListUsersCommand, ListRolesCommand, GetAccountSummaryCommand, ListMFADevicesCommand, ListAttachedUserPoliciesCommand, ListUserPoliciesCommand, ListAttachedRolePoliciesCommand, ListRolePoliciesCommand, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { SecurityHubClient, DescribeSecurityHubV2Command, GetEnabledStandardsCommand, GetFindingsCommand, GetFindingsV2Command } from '@aws-sdk/client-securityhub';
-import { ConfigServiceClient, DescribeConfigurationRecorderStatusCommand, DescribeComplianceByConfigRuleCommand, ListConfigurationRecordersCommand } from '@aws-sdk/client-config-service';
+import { ConfigServiceClient } from '@aws-sdk/client-config-service';
 import { Inspector2Client, BatchGetAccountStatusCommand, ListCoverageCommand, ListFindingsCommand as ListInspectorFindingsCommand } from '@aws-sdk/client-inspector2';
 import { PricingClient, GetProductsCommand } from '@aws-sdk/client-pricing';
 import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda';
@@ -21,6 +21,7 @@ import { KMSClient, ListKeysCommand } from '@aws-sdk/client-kms';
 import { BudgetsClient, DescribeBudgetsCommand } from '@aws-sdk/client-budgets';
 import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from '@aws-sdk/client-compute-optimizer';
 import { config } from './config.js';
+import { collectConfigPosture } from './security/configCollector.js';
 
 const sourceCredentials = fromIni({ profile: config.awsProfile });
 const credentials = config.awsRoleArn
@@ -57,7 +58,7 @@ function securityHubError(error: unknown): string {
   return awsError(error);
 }
 
-type SecurityHubFinding = { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string };
+type SecurityHubFinding = { id?: string; title?: string; severity?: string; status?: string; resource?: string; description?: string; recommendation?: string };
 
 const SECURITY_HUB_PAGE_SIZE = 50;
 const SECURITY_HUB_MAX_PAGES = 20;
@@ -324,11 +325,12 @@ export async function cpuMetrics(region: string, instanceIds: string[]) {
 }
 
 export async function security(region: string) {
-  const [users, roles, summary, trails] = await Promise.all([
+  const [users, roles, summary, trails, identity] = await Promise.all([
     aws.iam.send(new ListUsersCommand({ MaxItems: 100 })),
     aws.iam.send(new ListRolesCommand({ MaxItems: 100 })),
     aws.iam.send(new GetAccountSummaryCommand({})),
     new CloudTrailClient(clientConfig(region)).send(new DescribeTrailsCommand({ includeShadowTrails: true })),
+    aws.sts.send(new GetCallerIdentityCommand({})),
   ]);
   const identities = await Promise.all((users.Users ?? []).map(async (u) => {
     const [mfa, attached, inline] = await Promise.all([
@@ -374,6 +376,7 @@ export async function security(region: string) {
         findings.push(...(response.Findings ?? []).map((f) => ({
           id: f.Id, title: f.Title, severity: f.Severity?.Label, status: f.Workflow?.Status,
           resource: f.Resources?.[0]?.Id, description: f.Description,
+          recommendation: f.Remediation?.Recommendation?.Text,
         })));
         nextToken = response.NextToken;
         if (!nextToken || findings.length >= SECURITY_HUB_MAX_FINDINGS) break;
@@ -410,6 +413,9 @@ export async function security(region: string) {
     configSecurityPosture(region), inspectorSecurityPosture(region), s3SecurityPosture(region), networkSecurityPosture(region), rdsSecurityPosture(region),
   ]);
   return {
+    accountId: identity.Account,
+    partition: identity.Arn?.split(':')[1],
+    region,
     accountSummary: summary.SummaryMap ?? {}, identities,
     roles: mappedRoles,
     trails: trailStatuses,
@@ -491,29 +497,7 @@ async function rdsSecurityPosture(region: string) {
 }
 
 async function configSecurityPosture(region: string) {
-  const client = new ConfigServiceClient(clientConfig(region));
-  const [recorderList, recorderResponse, complianceResponse] = await Promise.all([
-    client.send(new ListConfigurationRecordersCommand({ MaxResults: 20 })),
-    client.send(new DescribeConfigurationRecorderStatusCommand({})),
-    client.send(new DescribeComplianceByConfigRuleCommand({})),
-  ]);
-  const statuses = new Map((recorderResponse.ConfigurationRecordersStatus ?? []).map((recorder) => [recorder.arn ?? recorder.name, recorder]));
-  return {
-    recorders: (recorderList.ConfigurationRecorderSummaries ?? []).map((recorder) => {
-      const status = statuses.get(recorder.arn ?? recorder.name);
-      return {
-        arn: recorder.arn, name: recorder.name, servicePrincipal: recorder.servicePrincipal,
-        recordingScope: recorder.recordingScope, recording: status?.recording ?? recorder.recordingScope === 'INTERNAL', lastStatus: status?.lastStatus,
-        lastErrorCode: status?.lastErrorCode, lastStatusChangeTime: status?.lastStatusChangeTime?.toISOString(),
-      };
-    }),
-    rules: (complianceResponse.ComplianceByConfigRules ?? []).map((rule) => ({
-      name: rule.ConfigRuleName, complianceType: rule.Compliance?.ComplianceType,
-      nonCompliantResources: rule.Compliance?.ComplianceContributorCount?.CappedCount ?? 0,
-      capExceeded: rule.Compliance?.ComplianceContributorCount?.CapExceeded ?? false,
-    })),
-    truncated: Boolean(recorderList.NextToken || complianceResponse.NextToken),
-  };
+  return collectConfigPosture(new ConfigServiceClient(clientConfig(region)));
 }
 
 async function inspectorSecurityPosture(region: string) {
