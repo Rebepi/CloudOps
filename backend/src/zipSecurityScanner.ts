@@ -9,13 +9,14 @@ import { scanImages, type TrivyOptions } from './security/trivyImages.js';
 import { scanSast, mergeSastFindings, type SastOptions, type SastSource } from './security/sast.js';
 import { SAST_RULES, sourceContext, sourceLanguage } from './security/sastCatalog.js';
 import { scanRepositorySecrets, mergeSecretFindings, type SecretScanOptions, type SecretSource } from './security/repositorySecrets.js';
+import { detectIacKind, scanIac, type IacOptions, type IacSource } from './security/iac.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 export const BUILTIN_RULE_CATALOG_VERSION = '2026.10.regex1';
 
 export type CodeFinding = {
   externalId: string;
-  source: 'cloudops' | 'osv' | 'trivy' | 'semgrep' | 'gitleaks';
+  source: 'cloudops' | 'osv' | 'trivy' | 'semgrep' | 'gitleaks' | 'trivy-config';
   category: 'archive' | 'secret' | 'code' | 'iac' | 'dependency' | 'license' | 'coverage';
   title: string;
   description: string;
@@ -74,6 +75,7 @@ export type ZipScanOptions = {
   imageScan?: TrivyOptions | null;
   sastScan?: SastOptions | null;
   secretScan?: SecretScanOptions | null;
+  iacScan?: IacOptions | null;
 };
 
 const DEFAULTS: Required<ZipScanOptions> = {
@@ -85,12 +87,14 @@ const DEFAULTS: Required<ZipScanOptions> = {
   imageScan: null,
   sastScan: null,
   secretScan: null,
+  iacScan: null,
 };
 
 const TEXT_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs', '.sh', '.ps1',
   '.json', '.yaml', '.yml', '.toml', '.ini', '.conf', '.xml', '.properties', '.env', '.tf', '.tfvars', '.sql', '.md', '.txt',
   '.cfg', '.config', '.cnf', '.pem', '.key', '.crt', '.cer',
+  '.hcl', '.tpl', '.tftpl',
 ]);
 
 const basename = (value: string) => value.replace(/\\/g, '/').split('/').pop() ?? value;
@@ -108,7 +112,7 @@ export function validateArchivePath(fileName: string) {
 
 function isTextCandidate(fileName: string) {
   const lower = basename(fileName).toLowerCase();
-  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === '.env' || lower.startsWith('.env.') || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock',
+  return TEXT_EXTENSIONS.has(extension(fileName)) || lower === '.env' || lower.startsWith('.env.') || /^dockerfile(?:[._-].*)?$/.test(lower) || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock',
     'id_rsa', 'id_ed25519', 'id_ecdsa', 'credentials', '.npmrc', '.pypirc', '.netrc', '.gitconfig', '.git-credentials'].includes(lower);
 }
 
@@ -391,6 +395,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   const images: ImageReference[] = [];
   const sources: SastSource[] = [];
   const secretSources: SecretSource[] = [];
+  const iacSources: IacSource[] = [];
+  let iacBytes = 0;
+  let iacFiles = 0;
   let secretBytes = 0;
   let secretFiles = 0;
   let sastBytes = 0;
@@ -410,7 +417,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[]; sources: SastSource[]; secretSources: SecretSource[] }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[]; sources: SastSource[]; secretSources: SecretSource[]; iacSources: IacSource[] }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -423,7 +430,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
       if (!settled) {
         settled = true;
         resolve({
-          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images, sources, secretSources,
+          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images, sources, secretSources, iacSources,
           components: [...components.values()],
           domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
           layerFiles,
@@ -456,6 +463,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
         const secretSource: SecretSource | undefined = isTextCandidate(entry.fileName) ? { path: entry.fileName,
           skipReason: options.secretScan?.enabled ? 'Texto no leído o binario.' : 'Gitleaks deshabilitado.' } : undefined;
         if (secretSource) secretSources.push(secretSource);
+        const initialIac = detectIacKind(entry.fileName);
+        let iacSource: IacSource | undefined = initialIac ? { path: entry.fileName, kind: initialIac, skipReason: options.iacScan?.enabled ? 'Texto no leído o binario.' : 'Trivy config deshabilitado.' } : undefined;
+        if (iacSource) iacSources.push(iacSource);
         const ext = extension(entry.fileName) || '[sin extensión]';
         extensions[ext] = (extensions[ext] ?? 0) + 1;
         if (isTextCandidate(entry.fileName)) {
@@ -465,6 +475,10 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             inventoryEntry.analysisStatus = 'text-limit';
             if (source) source.skipReason = 'Límite de texto ZIP.';
             if (secretSource) secretSource.skipReason = 'Límite de texto ZIP.';
+            if (iacSource) iacSource.skipReason = 'Límite de texto ZIP.';
+            else if (/\.(?:yaml|yml|json)$/i.test(entry.fileName) && !dependencyManifestPattern.test(basename(entry.fileName).toLowerCase())) {
+              iacSources.push({ path: entry.fileName, kind: 'unknown', skipReason: 'Tipo no determinado por límite de lectura ZIP.' });
+            }
             return zip.readEntry();
           }
           const buffer = await readEntry(zip, entry);
@@ -475,6 +489,12 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             filesAnalyzed += 1;
             layerFiles[layer].analyzedFiles += 1;
             const text = buffer.toString('utf8');
+            const kind = detectIacKind(entry.fileName, text);
+            if (kind && !iacSource) { iacSource = { path: entry.fileName, kind, skipReason: 'Trivy config deshabilitado.' }; iacSources.push(iacSource); }
+            if (iacSource && options.iacScan?.enabled) {
+              if (iacFiles >= 1000 || buffer.length > 2 * 1024 * 1024 || iacBytes + buffer.length > 20 * 1024 * 1024) iacSource.skipReason = 'Límite IaC de archivos o bytes.';
+              else { iacSource.text = text; delete iacSource.skipReason; iacFiles++; iacBytes += buffer.length; }
+            }
             if (secretSource && options.secretScan?.enabled) {
               if (secretFiles >= 2000 || buffer.length > 2 * 1024 * 1024 || secretBytes + buffer.length > 40 * 1024 * 1024) secretSource.skipReason = 'Límite Gitleaks de archivos o bytes.';
               else { secretSource.text = text; delete secretSource.skipReason; secretFiles++; secretBytes += buffer.length; }
@@ -549,6 +569,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const { findings: sastFindings, ...sast } = sastResult;
   archive.findings = mergeSastFindings(archive.findings, sastFindings);
   if (sast.durationMs !== null) analyzerTimings['semgrep:sast'] = { durationMs: sast.durationMs, scope: 'elapsed-service' };
+  const iacResult = await scanIac(archive.iacSources, options.iacScan);
+  const { findings: iacFindings, ...iac } = iacResult;
+  archive.findings.push(...iacFindings);
+  if (iac.durationMs !== null) analyzerTimings['trivy:iac'] = { durationMs: iac.durationMs, scope: 'elapsed-service' };
   const deduplicatedDependencies = [...new Map(archive.dependencies.map((item) => [`${item.ecosystem}:${item.name}:${item.version}`, item])).values()];
   let osvAvailable = false;
   let osvError: string | null = null;
@@ -654,6 +678,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
     totalControls++;
     observedControls += secrets.state === 'completed' ? 1 : secrets.state === 'partial' && secrets.filesAnalyzed > 0 ? 0.5 : 0;
   }
+  if (iac.filesCandidate > 0) {
+    totalControls++;
+    observedControls += iac.state === 'completed' ? 1 : iac.state === 'partial' && iac.targetsAnalyzed > 0 ? 0.5 : 0;
+  }
   const coverage = Math.round(observedControls / totalControls * 100);
   const layerLabels: Record<RepositoryLayer, string> = {
     backend: 'Backend', frontend: 'Frontend', infrastructure: 'Infraestructura / Compose', dependencies: 'Dependencias', shared: 'Compartido / raíz',
@@ -676,7 +704,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
       scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
-      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs, sast, secrets,
+      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs, sast, secrets, iac,
       scanLimits: [...osvLimits, ...secrets.limits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : []),
         ...(archive.images.length >= 100 ? ['image-inventory-limit'] : []), ...(archive.manifestIssues.length >= 200 ? ['manifest-issue-limit'] : []),
         ...(archive.dependencies.length >= 10_000 ? ['dependency-inventory-limit'] : [])],
@@ -702,7 +730,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
       ],
       methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
-      methodologyVersion: '2026.18',
+      methodologyVersion: '2026.19',
     },
   };
 }

@@ -1,0 +1,4 @@
+FROM alpine:3.20.3
+WORKDIR /application
+USER 10001:10001
+HEALTHCHECK CMD true

@@ -33,7 +33,7 @@ export function executeTool(executable: string, args: string[], timeoutMs: numbe
 }
 
 export async function executeDockerTool(image: string, args: string[], timeoutMs: number, options: {
-  kind: 'semgrep' | 'trivy' | 'gitleaks'; mounts?: { source: string; target: string }[];
+  kind: 'semgrep' | 'trivy' | 'gitleaks' | 'trivy-config'; mounts?: { source: string; target: string }[];
 }) {
   const name = `cloudops-${options.kind}-${randomUUID()}`;
   const invocation = ['run', '--rm', '--pull', 'never', '--name', name, '--read-only', '--cap-drop', 'ALL',

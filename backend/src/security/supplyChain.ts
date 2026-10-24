@@ -116,7 +116,7 @@ export function inspectManifest(path: string, text: string): InventoryIssue[] {
 
 export function inspectImages(path: string, text: string): ImageReference[] {
   const base = path.replace(/\\/g, '/').split('/').pop()!.toLowerCase();
-  const docker = base === 'dockerfile';
+  const docker = /^dockerfile(?:[._-].*)?$/.test(base);
   if (!docker && !/(?:docker-)?compose.*\.ya?ml$/.test(base)) return [];
   const stages = new Set<string>();
   const images: ImageReference[] = [];
@@ -214,7 +214,7 @@ export function buildSbom(dependencies: Dependency[], images: ImageReference[], 
   }
   return { bomFormat: 'CycloneDX', specVersion: '1.6', serialNumber: `urn:uuid:${randomUUID()}`, version: 1,
     metadata: { timestamp: new Date().toISOString(), component: { type: 'application', 'bom-ref': 'cloudops:project', name: 'Repositorio evaluado' },
-      tools: { components: [{ type: 'application', 'bom-ref': 'cloudops:scanner', name: 'CloudOps', version: '1.8.0' }] },
+      tools: { components: [{ type: 'application', 'bom-ref': 'cloudops:scanner', name: 'CloudOps', version: '1.9.0' }] },
       properties: [{ name: 'cloudops:inventory:scope', value: 'observed-manifests-and-configured-images' }, { name: 'cloudops:inventory:complete', value: String(complete) }] },
     components: [...components.values()].sort((a, b) => a['bom-ref'].localeCompare(b['bom-ref'])), vulnerabilities: [...vulnerabilities.values()] };
 }

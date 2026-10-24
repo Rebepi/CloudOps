@@ -84,7 +84,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
       },
       scoreCapsApplied: criticalExposure ? [criticalSecretExposure ? 'critical-secret-exposure:45' : 'critical-finding:45'] : [],
       methodology: 'Evaluación combinada de cuenta AWS, código, dependencias e IaC; puntaje único con deduplicación entre fuentes y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.18',
+      methodologyVersion: '2026.19',
     },
   };
 }
