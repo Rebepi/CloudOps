@@ -1,5 +1,6 @@
 import { computeFingerprint } from './findingFingerprint.js';
 import { deduplicateSecurityFindings } from './security/canonicalFindings.js';
+import type { CycloneDxBom } from './security/supplyChain.js';
 
 export type MergeFinding = {
   externalId: string;
@@ -17,6 +18,7 @@ export type MergeFinding = {
 };
 
 export type MergeEvaluation = {
+  sbom?: CycloneDxBom;
   score: number;
   coverage: number;
   confidence: string;
@@ -67,6 +69,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
     coverage,
     confidence,
     findings: combined,
+    ...(code.sbom ? { sbom: code.sbom } : {}),
     summary: {
       ...code.summary,
       ...aws.summary,
@@ -81,7 +84,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
       },
       scoreCapsApplied: criticalExposure ? [criticalSecretExposure ? 'critical-secret-exposure:45' : 'critical-finding:45'] : [],
       methodology: 'Evaluación combinada de cuenta AWS, código, dependencias e IaC; puntaje único con deduplicación entre fuentes y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.15',
+      methodologyVersion: '2026.16',
     },
   };
 }

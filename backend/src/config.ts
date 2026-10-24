@@ -15,6 +15,8 @@ export const config = {
   adminEmail: (process.env.ADMIN_EMAIL ?? 'renzobendezu51@gmail.com').trim().toLowerCase(),
   securityAlertWebhook: (process.env.SECURITY_ALERT_WEBHOOK ?? '').trim(),
   repositoryToken: (process.env.CLOUDOPS_REPOSITORY_TOKEN ?? '').trim(),
+  trivyEnabled: (process.env.CLOUDOPS_TRIVY_ENABLED ?? '').trim().toLowerCase() === 'true',
+  trivyExecutable: (process.env.CLOUDOPS_TRIVY_PATH ?? 'trivy').trim(),
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL es obligatorio');

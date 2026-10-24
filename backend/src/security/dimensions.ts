@@ -103,6 +103,8 @@ function matches(value: string, pattern: RegExp) {
 }
 
 export function dimensionForFinding(finding: Pick<FindingInput, 'source' | 'category' | 'title' | 'externalId' | 'evidence'>): SecurityDimensionId {
+  if (finding.source === 'trivy') return finding.category === 'secret' ? 'data' : 'dependencies';
+  if (finding.category === 'license') return 'dependencies';
   const canonicalControl = canonicalControlForFinding(finding);
   if (canonicalControl) return canonicalControl.dimension;
   const externalId = finding.externalId ?? '';
@@ -334,6 +336,19 @@ export function computeDimensionBreakdown({ assessmentType, findings, summary }:
     }
   }
   if (assessmentType !== 'code') controls.push(...awsControls(summary, findings));
+  const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
+  const trivy = supply.trivy && typeof supply.trivy === 'object' ? supply.trivy as Record<string, unknown> : {};
+  if (Array.isArray(supply.images) && supply.images.length) {
+    for (const [id, dimension, label, category] of [
+      ['trivy:image-vulnerabilities', 'dependencies', 'Vulnerabilidades de imágenes', 'dependency'],
+      ['trivy:image-secrets', 'data', 'Secretos en imágenes', 'secret'],
+    ] as const) {
+      const detected = findings.filter((finding) => finding.source === 'trivy' && finding.category === category && isNonInformational(finding));
+      const state: ControlState = trivy.state === 'completed' ? detected.length ? 'fail' : 'pass'
+        : trivy.state === 'partial' ? 'partial' : trivy.state === 'failed' ? 'failed' : 'skipped';
+      controls.push({ id, dimension, label, state, detail: typeof trivy.reason === 'string' ? trivy.reason : `${detected.length} hallazgo(s); estado de análisis: ${String(trivy.state ?? 'skipped')}.` });
+    }
+  }
   return SECURITY_DIMENSIONS.map((dimension) => dimensionResult(dimension.id, controls.filter((control) => control.dimension === dimension.id), findings));
 }
 
@@ -434,6 +449,22 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
         detail: { available: available ?? null, disabled, truncated,
           ...(analyzer.analyzerId === 'aws:config' ? { resourceResults: Number(summary.configObservedResources ?? 0), rules: Number(summary.configRules ?? 0) } : {}) },
       });
+    }
+  }
+  const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
+  if (supply.format === 'CycloneDX') {
+    runs.push({ analyzerId: 'cyclonedx:sbom', dimension: 'dependencies', state: supply.inventoryComplete === true ? 'completed' : 'partial',
+      itemsAnalyzed: Number(supply.componentCount ?? 0), findingsCount: 0, durationMs: null, error: null,
+      detail: { format: 'CycloneDX', specVersion: supply.specVersion, sha256: supply.sha256, inventoryComplete: supply.inventoryComplete } });
+    const trivy = supply.trivy && typeof supply.trivy === 'object' ? supply.trivy as Record<string, unknown> : {};
+    if (Array.isArray(supply.images) && supply.images.length) {
+      const results = Array.isArray(trivy.results) ? trivy.results as Record<string, unknown>[] : [];
+      runs.push({ analyzerId: 'trivy:images', dimension: 'dependencies',
+        state: ['completed', 'partial', 'failed', 'skipped'].includes(String(trivy.state)) ? trivy.state as AnalyzerRun['state'] : 'skipped',
+        itemsAnalyzed: results.filter((result) => result.state === 'completed' || result.state === 'partial').length,
+        findingsCount: findings.filter((finding) => finding.source === 'trivy').length, durationMs: null,
+        error: results.filter((result) => result.state === 'failed').map((result) => result.detail).join(' · ') || null,
+        detail: { reason: trivy.reason, results } });
     }
   }
   const timings = summary.analyzerTimings && typeof summary.analyzerTimings === 'object' ? summary.analyzerTimings as Record<string, unknown> : {};

@@ -4,13 +4,15 @@ import { computeFingerprint, deduplicateByFingerprint } from './findingFingerpri
 import { frameworkFor } from './findingFramework.js';
 import { lookupOsv, type OsvDetail } from './security/osvClient.js';
 import { recordAnalyzerTiming, type AnalyzerTimings } from './security/analyzerTiming.js';
+import { buildSbom, inspectImages, inspectManifest, inventoryIssues as resolveInventoryIssues, resolvedVersion, sbomChecksum, type ImageReference, type InventoryIssue } from './security/supplyChain.js';
+import { scanImages, type TrivyOptions } from './security/trivyImages.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 
 export type CodeFinding = {
   externalId: string;
-  source: 'cloudops' | 'osv';
-  category: 'archive' | 'secret' | 'code' | 'iac' | 'dependency';
+  source: 'cloudops' | 'osv' | 'trivy';
+  category: 'archive' | 'secret' | 'code' | 'iac' | 'dependency' | 'license' | 'coverage';
   title: string;
   description: string;
   severity: CodeSeverity;
@@ -22,7 +24,7 @@ export type CodeFinding = {
   framework?: string | null;
 };
 
-export type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string };
+export type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string; licenses?: string[]; integrity?: string };
 
 export type DetectedArchitectureComponent = {
   id: string;
@@ -65,6 +67,7 @@ export type ZipScanOptions = {
   maxEntryBytes?: number;
   maxTextBytes?: number;
   lookupVulnerabilities?: boolean;
+  imageScan?: TrivyOptions | null;
 };
 
 const DEFAULTS: Required<ZipScanOptions> = {
@@ -73,6 +76,7 @@ const DEFAULTS: Required<ZipScanOptions> = {
   maxEntryBytes: 8 * 1024 * 1024,
   maxTextBytes: 60 * 1024 * 1024,
   lookupVulnerabilities: true,
+  imageScan: null,
 };
 
 const TEXT_EXTENSIONS = new Set([
@@ -111,12 +115,12 @@ function domainsForPath(fileName: string): StaticCoverageDomain['id'][] {
   return domains;
 }
 
-const dependencyManifestPattern = /^(?:package-lock\.json|composer\.lock|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/;
+const dependencyManifestPattern = /^(?:package(?:-lock)?\.json|composer\.(?:json|lock)|pyproject\.toml|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/;
 
 export function classifyRepositoryPath(fileName: string, category?: CodeFinding['category']): RepositoryLayer {
   const normalized = fileName.replace(/\\/g, '/').toLowerCase();
   const lowerBase = basename(normalized).toLowerCase();
-  if (category === 'dependency' || dependencyManifestPattern.test(lowerBase)) return 'dependencies';
+  if (category === 'dependency' || category === 'license' || dependencyManifestPattern.test(lowerBase)) return 'dependencies';
   if (category === 'iac' || ['.tf', '.tfvars'].includes(extension(normalized)) || lowerBase === 'dockerfile'
     || /(?:docker-)?compose.*\.ya?ml$/.test(lowerBase) || /(?:cloudformation|template)\.ya?ml$/.test(lowerBase)
     || normalized.includes('/.github/workflows/')) return 'infrastructure';
@@ -273,9 +277,7 @@ export function analyzeTextFile(fileName: string, text: string, timings?: Analyz
 }
 
 function normalizeVersion(value: unknown) {
-  if (typeof value !== 'string') return null;
-  const version = value.trim().replace(/^(?:==|v)/, '');
-  return /^\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?$/.test(version) ? version : null;
+  return resolvedVersion(value);
 }
 
 export function parseDependencies(fileName: string, text: string): Dependency[] {
@@ -283,29 +285,39 @@ export function parseDependencies(fileName: string, text: string): Dependency[] 
   const dependencies: Dependency[] = [];
   try {
     if (lower === 'package-lock.json') {
-      const lock = JSON.parse(text) as { packages?: Record<string, { name?: string; version?: string }>; dependencies?: Record<string, { version?: string }> };
+      type LockedPackage = { version?: string; license?: string; integrity?: string; dependencies?: Record<string, LockedPackage> };
+      const lock = JSON.parse(text) as { packages?: Record<string, { name?: string; version?: string; license?: string; integrity?: string }>; dependencies?: Record<string, LockedPackage> };
       if (lock.packages) {
         for (const [path, pkg] of Object.entries(lock.packages)) {
           if (!path || !path.includes('node_modules/')) continue;
+          if (!pkg || typeof pkg !== 'object') continue;
           const name = pkg.name ?? path.slice(path.lastIndexOf('node_modules/') + 13);
           const version = normalizeVersion(pkg.version);
-          if (name && version) dependencies.push({ ecosystem: 'npm', name, version, manifest: fileName });
+          if (name && version) dependencies.push({ ecosystem: 'npm', name, version, manifest: fileName,
+            ...(typeof pkg.license === 'string' ? { licenses: [pkg.license] } : {}), ...(typeof pkg.integrity === 'string' ? { integrity: pkg.integrity } : {}) });
         }
       } else {
-        for (const [name, pkg] of Object.entries(lock.dependencies ?? {})) {
+        const pending = Object.entries(lock.dependencies ?? {});
+        while (pending.length) {
+          const [name, pkg] = pending.pop()!;
+          if (!pkg || typeof pkg !== 'object') continue;
           const version = normalizeVersion(pkg.version);
-          if (version) dependencies.push({ ecosystem: 'npm', name, version, manifest: fileName });
+          if (version) dependencies.push({ ecosystem: 'npm', name, version, manifest: fileName,
+            ...(typeof pkg.license === 'string' ? { licenses: [pkg.license] } : {}), ...(typeof pkg.integrity === 'string' ? { integrity: pkg.integrity } : {}) });
+          if (pkg.dependencies && typeof pkg.dependencies === 'object') for (const entry of Object.entries(pkg.dependencies)) pending.push(entry);
         }
       }
     } else if (lower === 'composer.lock') {
-      const lock = JSON.parse(text) as { packages?: { name?: string; version?: string }[]; 'packages-dev'?: { name?: string; version?: string }[] };
-      for (const pkg of [...(lock.packages ?? []), ...(lock['packages-dev'] ?? [])]) {
+      const lock = JSON.parse(text) as { packages?: { name?: string; version?: string; license?: string[] }[]; 'packages-dev'?: { name?: string; version?: string; license?: string[] }[] };
+      for (const pkg of [...(Array.isArray(lock.packages) ? lock.packages : []), ...(Array.isArray(lock['packages-dev']) ? lock['packages-dev'] : [])]) {
+        if (!pkg || typeof pkg !== 'object') continue;
         const version = normalizeVersion(pkg.version);
-        if (pkg.name && version) dependencies.push({ ecosystem: 'Packagist', name: pkg.name, version, manifest: fileName });
+        if (pkg.name && version) dependencies.push({ ecosystem: 'Packagist', name: pkg.name, version, manifest: fileName,
+          ...(Array.isArray(pkg.license) ? { licenses: pkg.license.filter((license) => typeof license === 'string') } : {}) });
       }
     } else if (/^requirements.*\.txt$/.test(lower)) {
       for (const line of text.split(/\r?\n/)) {
-        const match = line.trim().match(/^([A-Za-z0-9_.-]+)==([^\s;#]+)/);
+        const match = line.trim().match(/^([A-Za-z0-9_.-]+)(?:\[[\w,.-]+\])?==([^\s;#\\]+)/);
         const version = normalizeVersion(match?.[2]);
         if (match?.[1] && version) dependencies.push({ ecosystem: 'PyPI', name: match[1], version, manifest: fileName });
       }
@@ -322,6 +334,7 @@ export function parseDependencies(fileName: string, text: string): Dependency[] 
     } else if (lower === 'pipfile.lock') {
       const lock = JSON.parse(text) as Record<string, Record<string, { version?: string }>>;
       for (const section of ['default', 'develop']) for (const [name, pkg] of Object.entries(lock[section] ?? {})) {
+        if (!pkg || typeof pkg !== 'object') continue;
         const version = normalizeVersion(pkg.version);
         if (version) dependencies.push({ ecosystem: 'PyPI', name, version, manifest: fileName });
       }
@@ -352,6 +365,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   const dependencies: Dependency[] = [];
   const extensions: Record<string, number> = {};
   const repositoryEntries: RepositoryEntry[] = [];
+  const manifestIssues: InventoryIssue[] = [];
+  const manifests: string[] = [];
+  const images: ImageReference[] = [];
   const components = new Map<string, DetectedArchitectureComponent>();
   const layerFiles = Object.fromEntries((['backend', 'frontend', 'infrastructure', 'dependencies', 'shared'] as RepositoryLayer[])
     .map((layer) => [layer, { candidateFiles: 0, analyzedFiles: 0 }])) as Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>;
@@ -367,7 +383,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[] }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[] }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -380,7 +396,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
       if (!settled) {
         settled = true;
         resolve({
-          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions,
+          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images,
           components: [...components.values()],
           domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
           layerFiles,
@@ -437,7 +453,15 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             }
             if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text, timings).slice(0, 500 - findings.length));
             const dependenciesStarted = performance.now();
-            dependencies.push(...parseDependencies(entry.fileName, text));
+            const parsedDependencies = parseDependencies(entry.fileName, text);
+            const available = Math.max(0, 10_000 - dependencies.length);
+            dependencies.push(...parsedDependencies.slice(0, available));
+            if (parsedDependencies.length > available && manifestIssues.length < 200) manifestIssues.push({ manifest: entry.fileName, kind: 'inventory-limit', detail: 'Se alcanzó el límite de diez mil entradas de dependencias.' });
+            if (dependencyManifestPattern.test(basename(entry.fileName).toLowerCase())) {
+              manifests.push(entry.fileName);
+              manifestIssues.push(...inspectManifest(entry.fileName, text).slice(0, Math.max(0, 200 - manifestIssues.length)));
+            }
+            if (images.length < 100) images.push(...inspectImages(entry.fileName, text).slice(0, 100 - images.length));
             recordAnalyzerTiming(timings, 'builtin:dependencies', dependenciesStarted, 'cumulative-rule');
           }
         }
@@ -492,10 +516,11 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         const fixed = fixedVersion(detail, match.dependency);
         const severity = osvSeverity(detail);
         archive.findings.push({
-          externalId: `${match.id}:${match.dependency.ecosystem}:${match.dependency.name}`, source: 'osv', category: 'dependency', title: `${match.id} afecta ${match.dependency.name}`,
+          externalId: `${match.id}:${match.dependency.ecosystem}:${match.dependency.name}:${match.dependency.version}`, source: 'osv', category: 'dependency', title: `${match.id} afecta ${match.dependency.name}`,
           description: typeof detail?.summary === 'string' ? detail.summary : `La versión ${match.dependency.version} figura como afectada en OSV.`, severity: severity.value, status: 'open',
           resource: match.dependency.manifest, recommendation: fixed ? `Actualizar a la versión ${fixed} o posterior y validar el cambio con pruebas de regresión.` : 'Actualizar a una versión corregida indicada por el aviso y validar el cambio con pruebas de regresión.',
-          evidence: { advisory: match.id, ecosystem: match.dependency.ecosystem, package: match.dependency.name, version: match.dependency.version, severityEstimated: severity.estimated },
+          evidence: { advisory: match.id, advisoryUrl: `https://osv.dev/vulnerability/${encodeURIComponent(match.id)}`, fixedVersion: fixed,
+            ecosystem: match.dependency.ecosystem, package: match.dependency.name, version: match.dependency.version, severityEstimated: severity.estimated },
         });
       }
     } catch (error) {
@@ -503,12 +528,31 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       osvState = 'failed';
     }
   }
+  const inventory = resolveInventoryIssues(archive.manifests, archive.manifestIssues);
+  const issueGroups = [...new Map(inventory.map((issue) => [`${issue.manifest}:${issue.kind}`, issue])).values()];
+  for (const issue of issueGroups.slice(0, 100)) {
+    const excluded = issue.kind === 'invalid-manifest' || issue.kind === 'inventory-limit' || issue.kind === 'unresolved-component';
+    const detected = finding(`dependency-${issue.kind}`, excluded ? 'coverage' : 'dependency', excluded ? 'INFORMATIONAL' : 'LOW',
+      `Inventario de dependencias: ${issue.kind}`, issue.detail, issue.manifest, null, 'Fijar versiones y conservar un lockfile compatible, válido y actualizado.');
+    if (excluded) detected.evidence.scoreExcluded = true;
+    archive.findings.push(detected);
+  }
+  const trivy = await scanImages(archive.images, options.imageScan);
+  archive.findings.push(...trivy.findings);
+  if (trivy.durationMs !== null) analyzerTimings['trivy:images'] = { durationMs: trivy.durationMs, scope: 'elapsed-service' };
   const withMetadata = archive.findings.map((item) => ({
     ...item,
     fingerprint: computeFingerprint(item),
     framework: frameworkFor(item.source, item.category),
   }));
   const findings = deduplicateByFingerprint(withMetadata);
+  const inventoryComplete = inventory.length === 0 && archive.manifestIssues.length < 200 && archive.images.length < 100 && archive.dependencies.length < 10_000
+    && !archive.repositoryEntries.some((entry) => entry.analysisStatus === 'text-limit')
+    && (!archive.images.length || trivy.state === 'completed');
+  const sbomStarted = performance.now();
+  const sbom = buildSbom(archive.dependencies, archive.images, trivy.components, findings, inventoryComplete);
+  const sbomSha256 = sbomChecksum(sbom);
+  recordAnalyzerTiming(analyzerTimings, 'cyclonedx:sbom', sbomStarted, 'elapsed-service');
   const counts = findings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
   const scoreableFindings = findings.filter((item) => item.evidence.scoreExcluded !== true);
   const scoreableCounts = scoreableFindings.reduce<Record<CodeSeverity, number>>((acc, item) => { acc[item.severity] += 1; return acc; }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFORMATIONAL: 0 });
@@ -534,6 +578,11 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       domain.detail += skipped ? ` ${skipped} archivo(s) omitido(s) por límite de texto.` : ' Se alcanzó el límite de 500 hallazgos estáticos.';
     }
   }
+  if (inventory.length || archive.dependencies.length >= 10_000 || archive.manifestIssues.length >= 200) {
+    const domain = coverageMatrix.find((domain) => domain.id === 'dependencies')!;
+    domain.status = 'partial';
+    domain.detail += ` ${inventory.length} observación(es) de inventario o versiones no resueltas.`;
+  }
   const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' && domain.files > 0 ? 0.5 : 0), 0);
   const totalControls = coverageMatrix.length;
   const coverage = Math.round(observedControls / totalControls * 100);
@@ -552,15 +601,20 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   });
   return {
     score, coverage, confidence: coverage === 100 ? 'high' as const : coverage >= 75 ? 'medium' as const : 'low' as const,
-    findings,
+    findings, sbom,
     summary: {
       counts, observedControls, totalControls, entryCount: archive.entryCount, uncompressedBytes: archive.uncompressedBytes,
       scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
       scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
       osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs,
-      scanLimits: [...osvLimits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : [])],
+      scanLimits: [...osvLimits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : []),
+        ...(archive.images.length >= 100 ? ['image-inventory-limit'] : []), ...(archive.manifestIssues.length >= 200 ? ['manifest-issue-limit'] : []),
+        ...(archive.dependencies.length >= 10_000 ? ['dependency-inventory-limit'] : [])],
       filesSkippedByTextLimit: textLimited.length,
+      supplyChain: { format: sbom.bomFormat, specVersion: sbom.specVersion, sha256: sbomSha256, componentCount: sbom.components.length,
+        manifestCount: archive.manifests.length, licenseCount: sbom.components.filter((component) => component.licenses?.length).length,
+        inventoryComplete, issues: inventory.slice(0, 200), images: archive.images, trivy: { state: trivy.state, reason: trivy.reason, results: trivy.results } },
       extensions: archive.extensions,
       detectedArchitecture: {
         source: 'repository-static-evidence',
@@ -578,7 +632,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
       ],
       methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
-      methodologyVersion: '2026.15',
+      methodologyVersion: '2026.16',
     },
   };
 }

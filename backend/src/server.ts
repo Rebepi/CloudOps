@@ -16,6 +16,8 @@ import { evaluateAwsSecurity } from './securityAssessment.js';
 // El escáner produce hallazgos, cobertura y arquitectura respaldados por evidencia del artefacto.
 import { scanZipSecurity } from './zipSecurityScanner.js';
 import { mergeAssessments } from './fullAssessment.js';
+import { serializeSbom, sbomChecksum, type CycloneDxBom } from './security/supplyChain.js';
+import { registerSbomRoute } from './security/sbomRoute.js';
 import { buildAnalyzerRuns, computeDimensionBreakdown, dimensionForFinding, type FindingInput } from './security/dimensions.js';
 import { computeFingerprint } from './findingFingerprint.js';
 import { startScheduler, computeNextRun } from './scheduler.js';
@@ -220,6 +222,7 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
   confidence: string;
   summary: Record<string, unknown>;
   findings: readonly FindingInput[];
+  sbom?: CycloneDxBom;
 }) {
   const breakdown = computeDimensionBreakdown({ assessmentType, findings: evaluation.findings, summary: evaluation.summary });
   const controls = breakdown.flatMap((dimension) => dimension.controls);
@@ -229,7 +232,12 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
       dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
     WHERE id=$1
   `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
-    String(evaluation.summary.methodologyVersion ?? '2026.15'), JSON.stringify(breakdown), JSON.stringify(controls), '1.5.0']);
+    String(evaluation.summary.methodologyVersion ?? '2026.16'), JSON.stringify(breakdown), JSON.stringify(controls), '1.6.0']);
+  if (evaluation.sbom) {
+    await client.query(`INSERT INTO assessment_sboms(assessment_id,format,spec_version,sha256,content) VALUES($1,$2,$3,$4,$5)
+      ON CONFLICT(assessment_id) DO UPDATE SET format=EXCLUDED.format,spec_version=EXCLUDED.spec_version,sha256=EXCLUDED.sha256,content=EXCLUDED.content`,
+    [assessmentId, evaluation.sbom.bomFormat, evaluation.sbom.specVersion, sbomChecksum(evaluation.sbom), serializeSbom(evaluation.sbom)]);
+  }
   await client.query('DELETE FROM assessment_analyzers WHERE assessment_id=$1', [assessmentId]);
   for (const run of analyzers) {
     await client.query(`
@@ -266,7 +274,7 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
   try {
     await db.query("UPDATE security_assessments SET status='running' WHERE id=$1", [assessmentId]);
     await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
-    const evaluation = await scanZipSecurity(temporaryPath);
+    const evaluation = await scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable } });
     const client = await db.connect();
     try {
       await client.query('BEGIN');
@@ -308,7 +316,7 @@ async function runFullAssessment(projectId: string, artifactId: string, assessme
     await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
     const [snapshot, codeEvaluation] = await Promise.all([
       cloud.security(region),
-      scanZipSecurity(temporaryPath),
+      scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable } }),
     ]);
     const awsEvaluation = evaluateAwsSecurity(snapshot);
     const evaluation = mergeAssessments(awsEvaluation, codeEvaluation);
@@ -749,6 +757,8 @@ app.get<{ Params: { id: string; assessmentId: string } }>('/api/v1/projects/:id/
   if (!comparison) return reply.code(404).send({ message: 'Evaluación no encontrada o todavía no completada' });
   return { data: comparison };
 });
+
+registerSbomRoute(app, db, uuidPattern);
 
 app.get<{ Params: { id: string; findingId: string } }>('/api/v1/projects/:id/security/findings/:findingId/events', async ({ params }, reply) => {
   if (!uuidPattern.test(params.id) || !uuidPattern.test(params.findingId)) return reply.code(400).send({ message: 'ID inválido' });

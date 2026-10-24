@@ -22,6 +22,7 @@ const SOURCE_PRIORITY: Record<string, number> = {
   'aws-config': 2,
   'amazon-inspector': 3,
   osv: 4,
+  trivy: 5,
 };
 
 const SEVERITY_PRIORITY: Record<string, number> = {

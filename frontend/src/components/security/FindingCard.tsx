@@ -48,6 +48,7 @@ const sourceLabel: Record<string, string> = {
   'amazon-inspector': 'Amazon Inspector',
   osv: 'OSV Vulnerability DB',
   cloudops: 'CloudOps Engine',
+  trivy: 'Trivy',
 };
 
 export function FindingCard({
@@ -202,6 +203,7 @@ export function FindingCard({
         )}
 
         <FindingObservations evidence={finding.evidence} />
+        {typeof finding.evidence.advisoryUrl === 'string' && /^https:\/\/(?:osv\.dev|nvd\.nist\.gov|trivy\.dev)\//.test(finding.evidence.advisoryUrl) && <a href={finding.evidence.advisoryUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-blue-400 underline">Consultar aviso de vulnerabilidad</a>}
 
         {/* Resource info & metadata footer */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3 text-[11px] text-muted">

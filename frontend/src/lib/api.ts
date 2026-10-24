@@ -6,7 +6,7 @@ export interface AwsResponse<T> {
   errors?: Record<string, string>;
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function request(path: string, init?: RequestInit): Promise<Response> {
   const token = typeof window !== 'undefined' ? sessionStorage.getItem('cloudops_token') : null;
   const method = (init?.method ?? 'GET').toUpperCase();
   const needsContentType = ['POST', 'PUT', 'PATCH'].includes(method);
@@ -37,6 +37,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
 
+  return response;
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await request(path, init);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+export async function apiText(path: string, init?: RequestInit): Promise<string> {
+  return (await request(path, init)).text();
 }

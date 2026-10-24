@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 corregida, correlación de Fase 2 disponible para identidades conocidas y núcleo de Fase 3 implementado. Fases 4 a 9 pendientes.
+Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 corregida, correlación de Fase 2 disponible para identidades conocidas, núcleo de Fase 3 implementado y base de Fase 4 implementada. Fases 5 a 9 pendientes.
 
-Versión actual: motor `1.5.0`, metodología AWS `2026.14` y metodología de código/full `2026.15`.
+Versión actual: motor `1.6.0`, metodología AWS `2026.14` y metodología de código/full `2026.16`.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -195,6 +195,8 @@ Pendientes: medición de `builtin:configuration`, trazas temporales de evaluacio
 
 ### Fase 4: dependencias y cadena de suministro
 
+Estado: base implementada y probada. Activación y validación de Trivy real pendientes del despliegue; ampliaciones de formatos documentadas en `docs/CADENA_SUMINISTRO.md`.
+
 Objetivo: pasar de consultar versiones a construir un inventario verificable.
 
 Entregables:
@@ -205,6 +207,20 @@ Entregables:
 - Enlaces a CVE, versión corregida y disponibilidad de parche.
 
 Criterio de salida: cada dependencia vulnerable tiene paquete, versión observada, versión corregida y evidencia.
+
+Avance:
+
+- SBOM CycloneDX JSON 1.6 por ejecución de código/full, con PURL, versiones distintas, manifiestos de origen, licencias e integridad declarada cuando están disponibles.
+- Vulnerabilidades OSV/Trivy enlazadas a componentes existentes. Enlaces a avisos y versión corregida cuando el proveedor la devuelve; no se inventa una corrección cuando no está disponible.
+- Identificadores OSV incluyen ahora la versión para evitar colapsar versiones vulnerables distintas. Los cambios de identidad se reflejan en la nueva metodología.
+- Revisión de declaraciones sin versión fija y lockfiles inválidos/ausentes. Los rangos respaldados por un lockfile válido no se confunden con versiones resueltas flotantes. Entradas no interpretables quedan explícitas.
+- Migración `009_assessment_sboms.cjs`, artefacto JSONB, checksum canónico y descarga autenticada vinculada al proyecto y evaluación completada.
+- Panel de cadena de suministro con descarga, checksum, observaciones, licencias observadas e imágenes/estado Trivy.
+- Adaptador Trivy opcional para vulnerabilidades, secretos y licencias de imágenes remotas. No ejecuta el proyecto ni contenedores. Límites, errores y omisiones quedan como cobertura parcial/fallida/omitida.
+- Variables `CLOUDOPS_TRIVY_ENABLED` y `CLOUDOPS_TRIVY_PATH` en `backend/.env.example`; valor predeterminado deshabilitado. No hay binario Trivy instalado en el entorno de validación y no se afirma una validación real de imágenes.
+- Se conservan digests de imagen cuando Trivy los informa. Los hashes de paquetes procedentes del lockfile se identifican como declarados, no verificados descargando el paquete.
+
+Pendientes: validación del ejecutable real y ampliaciones de parsers, grafos, entradas editables/Git e integridad verificada. El criterio de versión corregida se cumple solo para avisos que la informan; los demás permanecen sin corrección confirmada.
 
 ### Fase 5: SAST real sobre código de aplicación
 
@@ -306,8 +322,8 @@ npm run lint
 npm test
 ```
 
-Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 72 pruebas backend y 24 pruebas frontend aprobadas. La validación usa snapshots, clientes simulados y ZIP de prueba. Se aplicó la migración 008 en PostgreSQL local y se comprobó su columna nullable. No se recalcularon ni sobrescribieron evaluaciones históricas ni se verificaron los permisos Config adicionales contra AWS en vivo.
+Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 97 pruebas backend y 28 pruebas frontend aprobadas. La validación usa snapshots, clientes simulados, peticiones HTTP inyectadas y ZIP de prueba. Migraciones 008 y 009 aplicadas en PostgreSQL local. No se recalcularon ni sobrescribieron evaluaciones históricas, no se validó Trivy contra imágenes reales ni se verificaron los permisos Config adicionales contra AWS en vivo.
 
 ## 9. Próximo paso
 
-Completar el catálogo versionado de reglas de código y las métricas pendientes de Fase 3; después iniciar SBOM de Fase 4. Para validar Config en vivo, el despliegue debe aplicar los dos permisos adicionales de lectura. Las evaluaciones históricas se conservan; una nueva ejecución genera el desglose y los tiempos actualizados.
+Iniciar Fase 5 con SAST real y catálogo versionado de reglas; mantener explícitas las métricas y formatos pendientes. Antes de usar la nueva API en otro entorno, ejecutar `npm run migrate`. Para validar Config en vivo se requieren los dos permisos adicionales y para analizar imágenes se debe instalar/configurar Trivy. Las evaluaciones históricas se conservan; una nueva ejecución genera SBOM, desglose y tiempos.

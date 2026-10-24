@@ -93,3 +93,49 @@ test('el límite de hallazgos estáticos reduce cobertura aunque continúe el in
   assert.ok(evaluation.summary.scanLimits.includes('static-finding-limit'));
   assert.equal(evaluation.summary.coverageMatrix.find((domain) => domain.id === 'source-code')!.status, 'partial');
 });
+
+test('un ZIP genera SBOM descargable lógico y conserva imágenes omitidas como cobertura parcial', async (t) => {
+  const path = await archive(t, {
+    'frontend/package.json': '{"dependencies":{"example":"^1.0.0"}}',
+    'frontend/package-lock.json': '{"packages":{"node_modules/example":{"version":"1.2.0","license":"MIT"}}}',
+    Dockerfile: 'FROM node:22',
+  });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false });
+  assert.equal(evaluation.sbom.bomFormat, 'CycloneDX');
+  assert.equal(evaluation.sbom.components.length, 2);
+  assert.equal(evaluation.summary.supplyChain.sha256.length, 64);
+  assert.equal(evaluation.summary.supplyChain.issues.length, 0);
+  assert.equal(evaluation.summary.supplyChain.trivy.state, 'skipped');
+  assert.equal(evaluation.summary.supplyChain.inventoryComplete, false);
+});
+
+test('lockfile inválido no se convierte en inventario completo ni en versiones inventadas', async (t) => {
+  const path = await archive(t, { 'package.json': '{"dependencies":{"example":"*"}}', 'package-lock.json': '{invalid' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false });
+  assert.equal(evaluation.sbom.components.length, 0);
+  assert.equal(evaluation.summary.supplyChain.inventoryComplete, false);
+  assert.ok(evaluation.summary.supplyChain.issues.some((issue) => issue.kind === 'invalid-manifest'));
+});
+
+test('adaptador Trivy integrado aporta paquetes y avisos al SBOM sin persistir secretos', async (t) => {
+  const path = await archive(t, { Dockerfile: 'FROM registry/app:1' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false, imageScan: { enabled: true, run: async () => JSON.stringify({ Results: [{
+    Target: 'image', Packages: [{ Name: 'example', Version: '1.0.0', Identifier: { PURL: 'pkg:npm/example@1.0.0' } }],
+    Vulnerabilities: [{ VulnerabilityID: 'CVE-2026-12345', PkgName: 'example', InstalledVersion: '1.0.0', Severity: 'HIGH', PkgIdentifier: { PURL: 'pkg:npm/example@1.0.0' } }],
+    Secrets: [{ RuleID: 'token', Title: 'Token', Severity: 'HIGH', Match: 'value-that-must-be-discarded' }],
+  }] }) } });
+  assert.equal(evaluation.summary.supplyChain.trivy.state, 'completed');
+  assert.equal(evaluation.sbom.vulnerabilities[0]!.id, 'CVE-2026-12345');
+  assert.equal(evaluation.sbom.components.length, 2);
+  assert.equal(JSON.stringify(evaluation).includes('value-that-must-be-discarded'), false);
+});
+
+test('un inventario excesivo se limita sin declarar el SBOM completo', async (t) => {
+  const packages = Object.fromEntries(Array.from({ length: 10_001 }, (_, index) => [`node_modules/package-${index}`, { version: '1.0.0' }]));
+  const path = await archive(t, { 'package-lock.json': JSON.stringify({ packages }) });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false });
+  assert.equal(evaluation.summary.dependencyCount, 10_000);
+  assert.equal(evaluation.sbom.components.length, 10_000);
+  assert.equal(evaluation.summary.supplyChain.inventoryComplete, false);
+  assert.ok(evaluation.summary.scanLimits.includes('dependency-inventory-limit'));
+});

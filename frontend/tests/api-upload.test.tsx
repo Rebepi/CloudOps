@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { api } from '../src/lib/api';
+import { api, apiText } from '../src/lib/api';
 import { assessmentLabel } from '../src/lib/assessmentLabels';
 
 afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
@@ -30,4 +30,13 @@ it('identifica la fuente del artefacto antes que la configuración actual del pr
   expect(assessmentLabel({ assessmentType: 'code', artifactMetadata: { provider: 'github' } }, repoProject)).toBe('Código de GitHub');
   expect(assessmentLabel({ assessmentType: 'code', artifactName: 'upload.zip' }, repoProject)).toBe('Código de ZIP');
   expect(assessmentLabel({ assessmentType: 'code' })).toBe('Código');
+});
+
+it('descarga texto autenticado sin reserializar el SBOM y alterar su checksum', async () => {
+  const canonical = '{"bomFormat":"CycloneDX","specVersion":"1.6"}';
+  const fetch = vi.fn(async () => new Response(canonical, { headers: { 'content-type': 'application/vnd.cyclonedx+json' } }));
+  vi.stubGlobal('fetch', fetch);
+  sessionStorage.setItem('cloudops_token', 'test-session-token');
+  expect(await apiText('/projects/project/security/assessments/assessment/sbom')).toBe(canonical);
+  expect(new Headers((fetch.mock.calls[0][1] as RequestInit).headers).get('Authorization')).toBe('Bearer test-session-token');
 });

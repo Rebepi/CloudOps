@@ -1,6 +1,6 @@
 # Implementación de análisis de seguridad en CloudOps
 
-> Actualización de seguimiento (2026-10-23): el avance vigente está en `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva la implementación y las observaciones históricas del 2026-10-14. El motor es `1.5.0`, con metodología AWS `2026.14` y código/full `2026.15`. Incluye correlación CloudOps/Security Hub/Config/Inspector para identidades conocidas, reintentos OSV acotados, resultados parciales conservados y tiempos reales por analizador instrumentado. El panel muestra duración y reintentos. La migración 008 agrega `duration_ms` nullable y debe aplicarse antes del despliegue. Los permisos Config adicionales siguen pendientes de aplicación y validación en vivo. El plan distingue los formatos y métricas que todavía no están cubiertos.
+> Actualización de seguimiento (2026-10-23): el avance vigente está en `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva las observaciones históricas del 2026-10-14. Motor `1.6.0`, metodología AWS `2026.14` y código/full `2026.16`. Incluye correlación conocida entre fuentes, OSV acotado, tiempos, SBOM CycloneDX descargable y adaptador Trivy opcional para imágenes. Las migraciones 008/009 agregan duración y artefactos SBOM y deben aplicarse antes del despliegue. Los permisos Config adicionales y la validación de un binario Trivy real siguen pendientes. La guía de inventario, activación y límites está en `CADENA_SUMINISTRO.md`.
 
 Última actualización: 2026-10-14  
 Cuenta de prueba: `143924590537`  

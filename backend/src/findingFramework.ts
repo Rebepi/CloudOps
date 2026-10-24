@@ -2,6 +2,7 @@ export type FrameworkLabel = string | null;
 
 export function frameworkFor(source: string, category: string): FrameworkLabel {
   if (category === 'coverage') return null;
+  if (category === 'license') return 'Inventario de licencias / CycloneDX';
 
   if (category === 'dependency' || category === 'vulnerability') {
     return 'OWASP Top 10 2021 · A06 Componentes vulnerables y desactualizados';
