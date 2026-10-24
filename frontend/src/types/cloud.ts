@@ -41,7 +41,7 @@ export interface HallazgoSeguridad {
   id: string;
   assessmentId: string;
   externalId?: string | null;
-  source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv' | 'trivy';
+  source: 'cloudops' | 'security-hub' | 'aws-config' | 'amazon-inspector' | 'osv' | 'trivy' | 'semgrep';
   category: string;
   dimension?: string | null;
   title: string;
@@ -171,11 +171,17 @@ export interface EvaluacionSeguridad {
   coverage: number;
   confidence: 'low' | 'medium' | 'high';
   summary: {
+    sast?: { state: string; reason: string | null; filesCandidate: number; filesEligible: number; filesAnalyzed: number; filesExcluded: number;
+      filesSkipped: number; unsupportedFiles: number; engineVersion: string | null;
+      catalog: { version: string; ruleCount: number; sha256: string | null };
+      languages: { language: string; state: string; filesCandidate: number; filesAnalyzed: number; filesExcluded: number; rules: string[] }[];
+      skipped: { path: string; reason: string }[]; engine?: { name: string; mode: string; image: string | null } };
     supplyChain?: {
       format: string; specVersion: string; sha256: string; componentCount: number; manifestCount: number; licenseCount: number; inventoryComplete: boolean;
       issues: { manifest: string; kind: string; detail: string }[];
       images: { reference: string; manifest: string; pinned: boolean }[];
-      trivy: { state: string; reason: string | null; results: { reference: string; state: string; detail: string }[] };
+      trivy: { state: string; reason: string | null; results: { reference: string; state: string; detail: string }[];
+        tool?: { name: string; mode: string; image: string | null } };
     };
     counts?: Record<string, number>;
     observedControls?: number;

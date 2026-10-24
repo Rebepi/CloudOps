@@ -6,12 +6,15 @@ import { lookupOsv, type OsvDetail } from './security/osvClient.js';
 import { recordAnalyzerTiming, type AnalyzerTimings } from './security/analyzerTiming.js';
 import { buildSbom, inspectImages, inspectManifest, inventoryIssues as resolveInventoryIssues, resolvedVersion, sbomChecksum, type ImageReference, type InventoryIssue } from './security/supplyChain.js';
 import { scanImages, type TrivyOptions } from './security/trivyImages.js';
+import { scanSast, mergeSastFindings, type SastOptions, type SastSource } from './security/sast.js';
+import { SAST_RULES, sourceContext, sourceLanguage } from './security/sastCatalog.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
+export const BUILTIN_RULE_CATALOG_VERSION = '2026.10.regex1';
 
 export type CodeFinding = {
   externalId: string;
-  source: 'cloudops' | 'osv' | 'trivy';
+  source: 'cloudops' | 'osv' | 'trivy' | 'semgrep';
   category: 'archive' | 'secret' | 'code' | 'iac' | 'dependency' | 'license' | 'coverage';
   title: string;
   description: string;
@@ -68,6 +71,7 @@ export type ZipScanOptions = {
   maxTextBytes?: number;
   lookupVulnerabilities?: boolean;
   imageScan?: TrivyOptions | null;
+  sastScan?: SastOptions | null;
 };
 
 const DEFAULTS: Required<ZipScanOptions> = {
@@ -77,6 +81,7 @@ const DEFAULTS: Required<ZipScanOptions> = {
   maxTextBytes: 60 * 1024 * 1024,
   lookupVulnerabilities: true,
   imageScan: null,
+  sastScan: null,
 };
 
 const TEXT_EXTENSIONS = new Set([
@@ -183,6 +188,13 @@ const RULES: Rule[] = [
   { id: 'docker-socket', category: 'iac', severity: 'CRITICAL', title: 'Socket de Docker montado en un contenedor', pattern: /\/var\/run\/docker\.sock\s*:/i, description: 'El contenedor puede controlar el daemon Docker y potencialmente el host.', recommendation: 'Eliminar el montaje del socket o usar un proxy con permisos mínimos y aislamiento adicional.', extensions: ['.yaml', '.yml'] },
 ];
 
+export const BUILTIN_RULE_CATALOG = {
+  version: BUILTIN_RULE_CATALOG_VERSION,
+  sha256: createHash('sha256').update(JSON.stringify(RULES.map((rule) => ({ ...rule, pattern: rule.pattern.source, flags: rule.pattern.flags })))).digest('hex'),
+  rules: RULES.map((rule) => ({ id: `cloudops:${rule.id}`, category: rule.category, severity: rule.severity, title: rule.title,
+    recommendation: rule.recommendation, extensions: rule.extensions ?? null })),
+};
+
 type ComponentMatch = Omit<DetectedArchitectureComponent, 'evidence'>;
 
 const COMPONENT_SIGNATURES: { match: RegExp; component: ComponentMatch }[] = [
@@ -224,7 +236,7 @@ function architectureComponents(fileName: string, text: string): ComponentMatch[
   return components;
 }
 
-export function analyzeTextFile(fileName: string, text: string, timings?: AnalyzerTimings): CodeFinding[] {
+export function analyzeTextFile(fileName: string, text: string, timings?: AnalyzerTimings, executions?: Record<string, number>): CodeFinding[] {
   const results: CodeFinding[] = [];
   const ext = extension(fileName);
   const lowerBase = basename(fileName).toLowerCase();
@@ -247,10 +259,11 @@ export function analyzeTextFile(fileName: string, text: string, timings?: Analyz
     results.push(sensitiveFinding);
   }
   if (timings) recordAnalyzerTiming(timings, 'builtin:secrets', secretStarted, 'cumulative-rule');
-  const isTestFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(fileName.replace(/\\/g, '/'));
-  const isDatabaseMigration = /(?:^|\/)(?:migrations?|alembic\/versions)(?:\/|$)/i.test(fileName.replace(/\\/g, '/'));
+  const isTestFixture = sourceContext(fileName) === 'test';
+  const isDatabaseMigration = sourceContext(fileName) === 'migration';
   for (const rule of RULES) {
     if (rule.extensions && !rule.extensions.includes(ext)) continue;
+    if (executions) executions[`cloudops:${rule.id}`] = (executions[`cloudops:${rule.id}`] ?? 0) + 1;
     const started = performance.now();
     const lineIndex = lines.findIndex((line) => {
       rule.pattern.lastIndex = 0;
@@ -258,13 +271,15 @@ export function analyzeTextFile(fileName: string, text: string, timings?: Analyz
     });
     if (lineIndex >= 0) {
       const fixtureSecret = isTestFixture && rule.category === 'secret' && ['hardcoded-secret', 'database-url'].includes(rule.id);
+      const fixtureCode = isTestFixture && (rule.category === 'code' || rule.category === 'iac');
       const migrationSql = isDatabaseMigration && rule.id === 'sql-string-concat';
-      const contextual = fixtureSecret || migrationSql;
+      const contextual = fixtureSecret || fixtureCode || migrationSql;
       const detected = finding(rule.id, rule.category, contextual ? 'INFORMATIONAL' : rule.severity, rule.title,
         fixtureSecret ? `${rule.description} El valor aparece en una prueba y se conserva como evidencia sin afectar el puntaje.`
+          : fixtureCode ? `${rule.description} El patrón aparece en una prueba o fixture y se conserva sin afectar el puntaje de la aplicación.`
           : migrationSql ? `${rule.description} Aparece en una migración de base de datos; requiere revisión manual y no afecta el puntaje automático.` : rule.description,
         fileName, lineIndex + 1, rule.recommendation);
-      if (contextual) detected.evidence = { ...detected.evidence, context: fixtureSecret ? 'test' : 'database-migration', scoreExcluded: true };
+      if (contextual) detected.evidence = { ...detected.evidence, context: fixtureSecret || fixtureCode ? 'test' : 'database-migration', scoreExcluded: true };
       results.push(detected);
     }
     if (timings) {
@@ -359,7 +374,7 @@ function readEntry(zip: ZipFile, entry: Entry) {
   }));
 }
 
-async function scanEntries(path: string, options: Required<ZipScanOptions>, timings: AnalyzerTimings) {
+async function scanEntries(path: string, options: Required<ZipScanOptions>, timings: AnalyzerTimings, executions: Record<string, number>) {
   const zip = await openZip(path);
   const findings: CodeFinding[] = [];
   const dependencies: Dependency[] = [];
@@ -368,6 +383,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   const manifestIssues: InventoryIssue[] = [];
   const manifests: string[] = [];
   const images: ImageReference[] = [];
+  const sources: SastSource[] = [];
+  let sastBytes = 0;
+  let sastFiles = 0;
   const components = new Map<string, DetectedArchitectureComponent>();
   const layerFiles = Object.fromEntries((['backend', 'frontend', 'infrastructure', 'dependencies', 'shared'] as RepositoryLayer[])
     .map((layer) => [layer, { candidateFiles: 0, analyzedFiles: 0 }])) as Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>;
@@ -383,7 +401,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
   let uncompressedBytes = 0;
   let textBytes = 0;
   let filesAnalyzed = 0;
-  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[] }>((resolve, reject) => {
+  return new Promise<{ findings: CodeFinding[]; dependencies: Dependency[]; entryCount: number; uncompressedBytes: number; filesAnalyzed: number; extensions: Record<string, number>; components: DetectedArchitectureComponent[]; domainFileCounts: Record<StaticCoverageDomain['id'], number>; layerFiles: Record<RepositoryLayer, { candidateFiles: number; analyzedFiles: number }>; repositoryEntries: RepositoryEntry[]; manifestIssues: InventoryIssue[]; manifests: string[]; images: ImageReference[]; sources: SastSource[] }>((resolve, reject) => {
     let settled = false;
     const fail = (error: unknown) => {
       if (settled) return;
@@ -396,7 +414,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
       if (!settled) {
         settled = true;
         resolve({
-          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images,
+          findings, dependencies, entryCount, uncompressedBytes, filesAnalyzed, extensions, manifestIssues, manifests, images, sources,
           components: [...components.values()],
           domainFileCounts: Object.fromEntries(Object.entries(domainFiles).map(([id, files]) => [id, files.size])) as Record<StaticCoverageDomain['id'], number>,
           layerFiles,
@@ -423,6 +441,9 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
         };
         repositoryEntries.push(inventoryEntry);
         if (directory) return zip.readEntry();
+        const language = sourceLanguage(entry.fileName);
+        const source: SastSource | undefined = language ? { path: entry.fileName, skipReason: options.sastScan?.enabled ? 'Fuente no analizada.' : 'SAST deshabilitado.' } : undefined;
+        if (source) sources.push(source);
         const ext = extension(entry.fileName) || '[sin extensión]';
         extensions[ext] = (extensions[ext] ?? 0) + 1;
         if (isTextCandidate(entry.fileName)) {
@@ -430,6 +451,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
           layerFiles[layer].candidateFiles += 1;
           if (textBytes + entry.uncompressedSize > options.maxTextBytes) {
             inventoryEntry.analysisStatus = 'text-limit';
+            if (source) source.skipReason = 'Límite de texto ZIP.';
             return zip.readEntry();
           }
           const buffer = await readEntry(zip, entry);
@@ -440,6 +462,13 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             filesAnalyzed += 1;
             layerFiles[layer].analyzedFiles += 1;
             const text = buffer.toString('utf8');
+            if (source && options.sastScan?.enabled) {
+              const context = sourceContext(source.path);
+              if (context !== 'application') source.skipReason = context;
+              else if (!SAST_RULES.some((rule) => (rule.languages as readonly string[]).includes(language!))) source.skipReason = 'Lenguaje sin reglas en el catálogo.';
+              else if (sastFiles >= 2000 || buffer.length > 2 * 1024 * 1024 || sastBytes + buffer.length > 40 * 1024 * 1024) source.skipReason = 'Límite SAST de archivos o bytes.';
+              else { source.text = text; delete source.skipReason; sastFiles++; sastBytes += buffer.length; }
+            }
             const normalized = entry.fileName.replace(/\\/g, '/').toLowerCase();
             for (const domain of domainsForPath(entry.fileName)) domainFiles[domain].add(entry.fileName);
             const isEvidenceFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?|interaction-tests)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(normalized);
@@ -451,7 +480,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
                 components.set(detected.id, { ...detected, evidence: [entry.fileName] });
               }
             }
-            if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text, timings).slice(0, 500 - findings.length));
+            if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text, timings, executions).slice(0, 500 - findings.length));
             const dependenciesStarted = performance.now();
             const parsedDependencies = parseDependencies(entry.fileName, text);
             const available = Math.max(0, 10_000 - dependencies.length);
@@ -490,10 +519,15 @@ function fixedVersion(detail: OsvDetail | undefined, dependency: Dependency) {
 export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions = {}) {
   const options = { ...DEFAULTS, ...inputOptions };
   const analyzerTimings: AnalyzerTimings = {};
+  const ruleExecutions: Record<string, number> = {};
   const archiveStarted = performance.now();
-  const archive = await scanEntries(path, options, analyzerTimings);
+  const archive = await scanEntries(path, options, analyzerTimings, ruleExecutions);
   const archiveDurationMs = Math.round(performance.now() - archiveStarted);
   const staticFindingLimitReached = archive.findings.length >= 500;
+  const sastResult = await scanSast(archive.sources, options.sastScan);
+  const { findings: sastFindings, ...sast } = sastResult;
+  archive.findings = mergeSastFindings(archive.findings, sastFindings);
+  if (sast.durationMs !== null) analyzerTimings['semgrep:sast'] = { durationMs: sast.durationMs, scope: 'elapsed-service' };
   const deduplicatedDependencies = [...new Map(archive.dependencies.map((item) => [`${item.ecosystem}:${item.name}:${item.version}`, item])).values()];
   let osvAvailable = false;
   let osvError: string | null = null;
@@ -542,8 +576,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   if (trivy.durationMs !== null) analyzerTimings['trivy:images'] = { durationMs: trivy.durationMs, scope: 'elapsed-service' };
   const withMetadata = archive.findings.map((item) => ({
     ...item,
+    evidence: item.source === 'cloudops' && BUILTIN_RULE_CATALOG.rules.some((rule) => item.externalId.startsWith(`${rule.id}:`))
+      ? { ...item.evidence, ruleId: item.externalId.split(':').slice(0, 2).join(':'), catalogVersion: BUILTIN_RULE_CATALOG_VERSION } : item.evidence,
     fingerprint: computeFingerprint(item),
-    framework: frameworkFor(item.source, item.category),
+    framework: item.framework ?? frameworkFor(item.source, item.category),
   }));
   const findings = deduplicateByFingerprint(withMetadata);
   const inventoryComplete = inventory.length === 0 && archive.manifestIssues.length < 200 && archive.images.length < 100 && archive.dependencies.length < 10_000
@@ -564,7 +600,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const score = criticalSecretExposure ? Math.min(45, calculatedScore) : calculatedScore;
   const coverageMatrix: StaticCoverageDomain[] = [
     { id: 'secrets', label: 'Secretos y credenciales', status: archive.domainFileCounts.secrets ? 'measured' : 'not-detected', files: archive.domainFileCounts.secrets, detail: archive.domainFileCounts.secrets ? 'Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.' : 'No se encontraron archivos de texto analizables.' },
-    { id: 'source-code', label: 'Código fuente (SAST)', status: archive.domainFileCounts['source-code'] ? 'measured' : 'not-detected', files: archive.domainFileCounts['source-code'], detail: archive.domainFileCounts['source-code'] ? `Reglas estáticas aplicadas a ${archive.domainFileCounts['source-code']} archivo(s) de código.` : 'No se detectaron extensiones de código admitidas.' },
+    { id: 'source-code', label: 'Código fuente (reglas internas)', status: archive.domainFileCounts['source-code'] ? 'measured' : 'not-detected', files: archive.domainFileCounts['source-code'], detail: archive.domainFileCounts['source-code'] ? `Reglas internas aplicadas a ${archive.domainFileCounts['source-code']} archivo(s). El análisis de flujo Semgrep se informa por separado.` : 'No se detectaron extensiones de código admitidas.' },
     { id: 'dependencies', label: 'Dependencias conocidas', status: archive.domainFileCounts.dependencies ? (osvState === 'completed' ? 'measured' : 'partial') : 'not-detected', files: archive.domainFileCounts.dependencies, detail: archive.domainFileCounts.dependencies ? `${vulnerabilitiesChecked} de ${deduplicatedDependencies.length} versiones consultadas en OSV. ${osvState === 'completed' ? 'Consulta completa.' : osvError ?? (osvState === 'skipped' ? 'Consulta omitida o sin versiones compatibles.' : 'Consulta incompleta.')}` : 'No se encontró un lockfile compatible; no se calificaron vulnerabilidades de dependencias.' },
     { id: 'iac', label: 'Infraestructura como código', status: archive.domainFileCounts.iac ? 'measured' : 'not-detected', files: archive.domainFileCounts.iac, detail: archive.domainFileCounts.iac ? 'Terraform/CloudFormation inspeccionado con reglas de exposición, IAM y cifrado.' : 'No se detectó Terraform o CloudFormation; este dominio no fue medido.' },
     { id: 'containers', label: 'Contenedores', status: archive.domainFileCounts.containers ? 'measured' : 'not-detected', files: archive.domainFileCounts.containers, detail: archive.domainFileCounts.containers ? 'Dockerfiles y/o archivos Compose inspeccionados.' : 'No se detectaron definiciones Docker; este dominio no fue medido.' },
@@ -583,8 +619,16 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
     domain.status = 'partial';
     domain.detail += ` ${inventory.length} observación(es) de inventario o versiones no resueltas.`;
   }
-  const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' && domain.files > 0 ? 0.5 : 0), 0);
-  const totalControls = coverageMatrix.length;
+  let observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' && domain.files > 0 ? 0.5 : 0), 0);
+  let totalControls = coverageMatrix.length;
+  if (sast.filesCandidate > 0) {
+    totalControls++;
+    observedControls += sast.state === 'completed' ? 1 : sast.state === 'partial' && sast.filesAnalyzed > 0 ? 0.5 : 0;
+  }
+  if (archive.images.length) {
+    totalControls++;
+    observedControls += trivy.state === 'completed' ? 1 : trivy.state === 'partial' && (trivy.components.length > 0 || trivy.findings.length > 0) ? 0.5 : 0;
+  }
   const coverage = Math.round(observedControls / totalControls * 100);
   const layerLabels: Record<RepositoryLayer, string> = {
     backend: 'Backend', frontend: 'Frontend', infrastructure: 'Infraestructura / Compose', dependencies: 'Dependencias', shared: 'Compartido / raíz',
@@ -607,14 +651,14 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
       scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
-      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs,
+      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs, sast,
       scanLimits: [...osvLimits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : []),
         ...(archive.images.length >= 100 ? ['image-inventory-limit'] : []), ...(archive.manifestIssues.length >= 200 ? ['manifest-issue-limit'] : []),
         ...(archive.dependencies.length >= 10_000 ? ['dependency-inventory-limit'] : [])],
       filesSkippedByTextLimit: textLimited.length,
       supplyChain: { format: sbom.bomFormat, specVersion: sbom.specVersion, sha256: sbomSha256, componentCount: sbom.components.length,
         manifestCount: archive.manifests.length, licenseCount: sbom.components.filter((component) => component.licenses?.length).length,
-        inventoryComplete, issues: inventory.slice(0, 200), images: archive.images, trivy: { state: trivy.state, reason: trivy.reason, results: trivy.results } },
+        inventoryComplete, issues: inventory.slice(0, 200), images: archive.images, trivy: { state: trivy.state, reason: trivy.reason, results: trivy.results, tool: trivy.tool } },
       extensions: archive.extensions,
       detectedArchitecture: {
         source: 'repository-static-evidence',
@@ -624,7 +668,8 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       layerBreakdown,
       repositoryInventory: { entries: archive.repositoryEntries, complete: true },
       coverageMatrix,
-      rulesExecuted: RULES.length,
+      rulesExecuted: Object.keys(ruleExecutions).length,
+      ruleCatalog: { version: BUILTIN_RULE_CATALOG.version, sha256: BUILTIN_RULE_CATALOG.sha256, declaredRules: RULES.length, executions: ruleExecutions },
       scoreScope: 'Riesgo estático observado en los archivos cubiertos; no representa por sí solo la seguridad total del sistema desplegado.',
       limitations: [
         'No se ejecutó el código ni se enviaron solicitudes a una aplicación en funcionamiento.',
@@ -632,7 +677,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
       ],
       methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
-      methodologyVersion: '2026.16',
+      methodologyVersion: '2026.17',
     },
   };
 }

@@ -214,7 +214,7 @@ export function buildSbom(dependencies: Dependency[], images: ImageReference[], 
   }
   return { bomFormat: 'CycloneDX', specVersion: '1.6', serialNumber: `urn:uuid:${randomUUID()}`, version: 1,
     metadata: { timestamp: new Date().toISOString(), component: { type: 'application', 'bom-ref': 'cloudops:project', name: 'Repositorio evaluado' },
-      tools: { components: [{ type: 'application', 'bom-ref': 'cloudops:scanner', name: 'CloudOps', version: '1.6.0' }] },
+      tools: { components: [{ type: 'application', 'bom-ref': 'cloudops:scanner', name: 'CloudOps', version: '1.7.0' }] },
       properties: [{ name: 'cloudops:inventory:scope', value: 'observed-manifests-and-configured-images' }, { name: 'cloudops:inventory:complete', value: String(complete) }] },
     components: [...components.values()].sort((a, b) => a['bom-ref'].localeCompare(b['bom-ref'])), vulnerabilities: [...vulnerabilities.values()] };
 }

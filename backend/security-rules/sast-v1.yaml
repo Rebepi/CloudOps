@@ -1,0 +1,160 @@
+rules:
+  - id: cloudops.python.sql-taint
+    languages: [python]
+    severity: ERROR
+    message: External input reaches SQL query text.
+    mode: taint
+    pattern-sources: &python_sources
+      - pattern: request.args.get(...)
+      - pattern: request.args[$KEY]
+      - pattern: request.form.get(...)
+      - pattern: request.json[$KEY]
+      - pattern: request.query_params.get(...)
+      - pattern: request.query_params[$KEY]
+      - patterns:
+          - pattern-inside: |
+              @$APP.$METHOD(...)
+              def $FUNC(..., $ARG: str, ...):
+                  ...
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(get|post|put|patch|delete)$
+          - pattern: $ARG
+      - pattern: input(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $CURSOR.execute($SQL, ...)
+          - focus-metavariable: $SQL
+  - id: cloudops.python.command-taint
+    languages: [python]
+    severity: ERROR
+    message: External input reaches a shell command.
+    mode: taint
+    pattern-sources: *python_sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.system($CMD)
+              - pattern: subprocess.run($CMD, ..., shell=True)
+              - pattern: subprocess.Popen($CMD, ..., shell=True)
+          - focus-metavariable: $CMD
+  - id: cloudops.python.ssrf-taint
+    languages: [python]
+    severity: ERROR
+    message: External input controls an HTTP destination.
+    mode: taint
+    pattern-sources: *python_sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get($URL, ...)
+              - pattern: requests.post($URL, ...)
+              - pattern: urllib.request.urlopen($URL, ...)
+          - focus-metavariable: $URL
+  - id: cloudops.python.deserialize-taint
+    languages: [python]
+    severity: ERROR
+    message: External input reaches an unsafe deserializer.
+    mode: taint
+    pattern-sources: *python_sources
+    pattern-sinks:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: yaml.unsafe_load(...)
+  - id: cloudops.python.jwt-signature
+    languages: [python]
+    severity: ERROR
+    message: JWT signature verification is disabled.
+    pattern: 'jwt.decode(..., options={"verify_signature": False, ...})'
+  - id: cloudops.javascript.sql-taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: HTTP input reaches SQL query text.
+    mode: taint
+    pattern-sources: &javascript_sources
+      - pattern: req.query.$KEY
+      - pattern: req.body.$KEY
+      - pattern: req.params.$KEY
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+      - pattern: window.location.hash
+      - pattern: window.location.search
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($SQL, ...)
+              - pattern: $DB.execute($SQL, ...)
+          - focus-metavariable: $SQL
+  - id: cloudops.javascript.command-taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: HTTP input reaches a shell command.
+    mode: taint
+    pattern-sources: *javascript_sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec($CMD, ...)
+              - pattern: execSync($CMD, ...)
+              - pattern: child_process.exec($CMD, ...)
+              - pattern: child_process.execSync($CMD, ...)
+          - focus-metavariable: $CMD
+  - id: cloudops.javascript.xss-taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Untrusted input reaches an HTML output.
+    mode: taint
+    pattern-sources: *javascript_sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $ELEMENT.innerHTML = $HTML
+              - pattern: document.write($HTML)
+              - pattern: res.send($HTML)
+          - focus-metavariable: $HTML
+  - id: cloudops.javascript.ssrf-taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: HTTP input controls an HTTP destination.
+    mode: taint
+    pattern-sources: *javascript_sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: axios.get($URL, ...)
+          - focus-metavariable: $URL
+  - id: cloudops.php.sql-taint
+    languages: [php]
+    severity: ERROR
+    message: PHP input reaches SQL query text.
+    mode: taint
+    pattern-sources: &php_sources
+      - pattern: $_GET[$KEY]
+      - pattern: $_POST[$KEY]
+      - pattern: $_REQUEST[$KEY]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: mysqli_query($CONN, $SQL)
+              - pattern: $DB->query($SQL)
+          - focus-metavariable: $SQL
+  - id: cloudops.php.command-taint
+    languages: [php]
+    severity: ERROR
+    message: PHP input reaches a shell command.
+    mode: taint
+    pattern-sources: *php_sources
+    pattern-sinks:
+      - pattern: shell_exec(...)
+      - pattern: system(...)
+      - pattern: exec(...)
+  - id: cloudops.php.deserialize-taint
+    languages: [php]
+    severity: ERROR
+    message: PHP input reaches an unsafe deserializer.
+    mode: taint
+    pattern-sources: *php_sources
+    pattern-sinks:
+      - pattern: unserialize(...)

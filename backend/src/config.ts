@@ -17,6 +17,10 @@ export const config = {
   repositoryToken: (process.env.CLOUDOPS_REPOSITORY_TOKEN ?? '').trim(),
   trivyEnabled: (process.env.CLOUDOPS_TRIVY_ENABLED ?? '').trim().toLowerCase() === 'true',
   trivyExecutable: (process.env.CLOUDOPS_TRIVY_PATH ?? 'trivy').trim(),
+  trivyMode: (process.env.CLOUDOPS_TRIVY_MODE ?? 'native').trim() === 'docker' ? 'docker' as const : 'native' as const,
+  sastEnabled: (process.env.CLOUDOPS_SAST_ENABLED ?? '').trim().toLowerCase() === 'true',
+  sastExecutable: (process.env.CLOUDOPS_SAST_PATH ?? 'semgrep').trim(),
+  sastMode: (process.env.CLOUDOPS_SAST_MODE ?? 'docker').trim() === 'native' ? 'native' as const : 'docker' as const,
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL es obligatorio');

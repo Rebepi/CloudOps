@@ -23,6 +23,7 @@ const SOURCE_PRIORITY: Record<string, number> = {
   'amazon-inspector': 3,
   osv: 4,
   trivy: 5,
+  semgrep: 6,
 };
 
 const SEVERITY_PRIORITY: Record<string, number> = {

@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 corregida, correlación de Fase 2 disponible para identidades conocidas, núcleo de Fase 3 implementado y base de Fase 4 implementada. Fases 5 a 9 pendientes.
+Estado al 2026-10-23: bases de Fases 0 a 4 implementadas, analizadores reales preparados y base SAST de Fase 5 implementada/verificada. Las ampliaciones indicadas en cada fase y las Fases 6 a 9 siguen pendientes.
 
-Versión actual: motor `1.6.0`, metodología AWS `2026.14` y metodología de código/full `2026.16`.
+Versión actual: motor `1.7.0`, metodología AWS `2026.14` y metodología de código/full `2026.17`.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -106,7 +106,7 @@ Correcciones de la revisión del 2026-10-23:
 
 Pendientes de alcance, antes de declarar un motor extensible completo:
 
-- Catálogo versionado de reglas y adaptadores por analizador.
+- Ampliar los catálogos iniciales de reglas regex/SAST versionados y los adaptadores ya separados por analizador.
 - Completar atribución temporal de `builtin:configuration` y estados de soporte por lenguaje. Los tiempos y límites ya instrumentados se detallan en Fase 3.
 - Cobertura específica de reglas de identidad y datos dentro del código, además de los dominios generales actuales.
 
@@ -195,7 +195,7 @@ Pendientes: medición de `builtin:configuration`, trazas temporales de evaluacio
 
 ### Fase 4: dependencias y cadena de suministro
 
-Estado: base implementada y probada. Activación y validación de Trivy real pendientes del despliegue; ampliaciones de formatos documentadas en `docs/CADENA_SUMINISTRO.md`.
+Estado: base implementada y Trivy real validado mediante Docker. Los demás entornos requieren preparar y habilitar sus analizadores; ampliaciones de formatos documentadas en `docs/CADENA_SUMINISTRO.md`.
 
 Objetivo: pasar de consultar versiones a construir un inventario verificable.
 
@@ -217,12 +217,14 @@ Avance:
 - Migración `009_assessment_sboms.cjs`, artefacto JSONB, checksum canónico y descarga autenticada vinculada al proyecto y evaluación completada.
 - Panel de cadena de suministro con descarga, checksum, observaciones, licencias observadas e imágenes/estado Trivy.
 - Adaptador Trivy opcional para vulnerabilidades, secretos y licencias de imágenes remotas. No ejecuta el proyecto ni contenedores. Límites, errores y omisiones quedan como cobertura parcial/fallida/omitida.
-- Variables `CLOUDOPS_TRIVY_ENABLED` y `CLOUDOPS_TRIVY_PATH` en `backend/.env.example`; valor predeterminado deshabilitado. No hay binario Trivy instalado en el entorno de validación y no se afirma una validación real de imágenes.
+- Variables `CLOUDOPS_TRIVY_ENABLED`, `CLOUDOPS_TRIVY_PATH` y `CLOUDOPS_TRIVY_MODE` en la plantilla. Trivy 0.76.1 se preparó en Docker con digest fijo y caché propia; se validó una imagen real. El entorno local está habilitado, sin requerir un binario Windows global.
 - Se conservan digests de imagen cuando Trivy los informa. Los hashes de paquetes procedentes del lockfile se identifican como declarados, no verificados descargando el paquete.
 
-Pendientes: validación del ejecutable real y ampliaciones de parsers, grafos, entradas editables/Git e integridad verificada. El criterio de versión corregida se cumple solo para avisos que la informan; los demás permanecen sin corrección confirmada.
+Pendientes: ampliar parsers, grafos, entradas editables/Git e integridad verificada. El criterio de versión corregida se cumple solo para avisos que la informan; los demás permanecen sin corrección confirmada. La prueba real de Trivy conservó estado parcial por dos severidades desconocidas, sin descartar hallazgos.
 
 ### Fase 5: SAST real sobre código de aplicación
+
+Estado: base implementada y validada con Semgrep CE 1.182.0 real. La ampliación a autorización de negocio, otros lenguajes/frameworks y flujos interarchivo sigue pendiente.
 
 Objetivo: cubrir flujo de datos y lógica, no solo patrones.
 
@@ -234,6 +236,20 @@ Entregables:
 - Mapeo de resultados a OWASP y a la dimensión aplicación.
 
 Criterio de salida: un archivo de aplicación con concatenación SQL produce un hallazgo puntuable; una migración equivalente queda excluida con justificación.
+
+Implementado:
+
+- Adaptador Semgrep nativo/Docker, pack local de doce reglas y catálogo `2026.10.1` con CWE, severidad, lenguaje, dimensión, recomendación y hash.
+- Análisis de sintaxis y taint para Python, JavaScript, TypeScript y PHP: SQL, comandos, SSRF, XSS, deserialización y una regla explícita de firma JWT. No se declara cobertura general de autorización por recurso.
+- Prueba real de cuatro fuentes: catorce hallazgos ejercitaron las doce reglas; consultas parametrizadas seguras no produjeron hallazgos y se verificó taint de un parámetro `str` FastAPI.
+- Staging temporal de nombres hash, sin ejecución de código ni instalación del proyecto. Docker Semgrep no tiene red y usa montajes de solo lectura y límites de CPU/memoria/tiempo.
+- Exclusiones explícitas por contexto, estados por lenguaje, errores de parsing y archivos omitidos visibles. El código fuente y las trazas del analizador no se persisten como evidencia.
+- Corroboración de reglas internas/Semgrep por CWE+archivo+línea con una sola penalización y conservación de observaciones/huellas anteriores.
+- Catálogo regex interno `2026.10.regex1` y conteo de invocaciones reales. API autenticada `GET /api/v1/security/rules`; panel SAST por lenguaje y catálogo.
+- Preparación reproducible y validación real: `scripts/prepare-security-tools.ts` y `scripts/verify-security-tools.ts`. Ambos analizadores quedaron habilitados localmente en el archivo de entorno ignorado por Git.
+- La cobertura global ahora incorpora SAST e imágenes cuando corresponden. La metodología `2026.17` distingue estos resultados de las ejecuciones anteriores.
+
+Guía operativa, versiones/digests, resultados y límites: `docs/SAST_Y_ANALIZADORES.md`.
 
 ### Fase 6: secretos y protección de datos
 
@@ -322,8 +338,8 @@ npm run lint
 npm test
 ```
 
-Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 97 pruebas backend y 28 pruebas frontend aprobadas. La validación usa snapshots, clientes simulados, peticiones HTTP inyectadas y ZIP de prueba. Migraciones 008 y 009 aplicadas en PostgreSQL local. No se recalcularon ni sobrescribieron evaluaciones históricas, no se validó Trivy contra imágenes reales ni se verificaron los permisos Config adicionales contra AWS en vivo.
+Verificación del 2026-10-23: compilación backend/frontend, lint, 108 pruebas backend y 31 frontend aprobadas. Además se prepararon y ejecutaron Semgrep y Trivy reales en Docker. Semgrep detectó catorce hallazgos en cuatro fuentes y ejercitó las doce reglas; Trivy conservó quince componentes y setenta y siete hallazgos de una imagen real, con estado parcial por dos severidades desconocidas. No se sobrescribieron evaluaciones históricas ni se modificaron políticas/servicios AWS. Los permisos Config adicionales siguen pendientes de validación en vivo.
 
 ## 9. Próximo paso
 
-Iniciar Fase 5 con SAST real y catálogo versionado de reglas; mantener explícitas las métricas y formatos pendientes. Antes de usar la nueva API en otro entorno, ejecutar `npm run migrate`. Para validar Config en vivo se requieren los dos permisos adicionales y para analizar imágenes se debe instalar/configurar Trivy. Las evaluaciones históricas se conservan; una nueva ejecución genera SBOM, desglose y tiempos.
+Continuar con Fase 6 (secretos de repositorio), ampliar el catálogo SAST y resolver las métricas/formatos pendientes. En otros entornos, aplicar migraciones, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera SAST, SBOM, desglose y tiempos.

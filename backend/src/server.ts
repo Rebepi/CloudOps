@@ -14,7 +14,8 @@ import { config } from './config.js';
 import * as cloud from './aws.js';
 import { evaluateAwsSecurity } from './securityAssessment.js';
 // El escáner produce hallazgos, cobertura y arquitectura respaldados por evidencia del artefacto.
-import { scanZipSecurity } from './zipSecurityScanner.js';
+import { scanZipSecurity, BUILTIN_RULE_CATALOG } from './zipSecurityScanner.js';
+import { getSastCatalog } from './security/sast.js';
 import { mergeAssessments } from './fullAssessment.js';
 import { serializeSbom, sbomChecksum, type CycloneDxBom } from './security/supplyChain.js';
 import { registerSbomRoute } from './security/sbomRoute.js';
@@ -232,7 +233,7 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
       dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
     WHERE id=$1
   `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
-    String(evaluation.summary.methodologyVersion ?? '2026.16'), JSON.stringify(breakdown), JSON.stringify(controls), '1.6.0']);
+    String(evaluation.summary.methodologyVersion ?? '2026.17'), JSON.stringify(breakdown), JSON.stringify(controls), '1.7.0']);
   if (evaluation.sbom) {
     await client.query(`INSERT INTO assessment_sboms(assessment_id,format,spec_version,sha256,content) VALUES($1,$2,$3,$4,$5)
       ON CONFLICT(assessment_id) DO UPDATE SET format=EXCLUDED.format,spec_version=EXCLUDED.spec_version,sha256=EXCLUDED.sha256,content=EXCLUDED.content`,
@@ -274,7 +275,8 @@ async function runZipAssessment(projectId: string, artifactId: string, assessmen
   try {
     await db.query("UPDATE security_assessments SET status='running' WHERE id=$1", [assessmentId]);
     await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
-    const evaluation = await scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable } });
+    const evaluation = await scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable, mode: config.trivyMode },
+      sastScan: { enabled: config.sastEnabled, executable: config.sastExecutable, mode: config.sastMode } });
     const client = await db.connect();
     try {
       await client.query('BEGIN');
@@ -316,7 +318,8 @@ async function runFullAssessment(projectId: string, artifactId: string, assessme
     await db.query("UPDATE project_artifacts SET status='running' WHERE id=$1", [artifactId]);
     const [snapshot, codeEvaluation] = await Promise.all([
       cloud.security(region),
-      scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable } }),
+      scanZipSecurity(temporaryPath, { imageScan: { enabled: config.trivyEnabled, executable: config.trivyExecutable, mode: config.trivyMode },
+        sastScan: { enabled: config.sastEnabled, executable: config.sastExecutable, mode: config.sastMode } }),
     ]);
     const awsEvaluation = evaluateAwsSecurity(snapshot);
     const evaluation = mergeAssessments(awsEvaluation, codeEvaluation);
@@ -759,6 +762,8 @@ app.get<{ Params: { id: string; assessmentId: string } }>('/api/v1/projects/:id/
 });
 
 registerSbomRoute(app, db, uuidPattern);
+
+app.get('/api/v1/security/rules', async () => ({ data: { builtin: BUILTIN_RULE_CATALOG, sast: await getSastCatalog() } }));
 
 app.get<{ Params: { id: string; findingId: string } }>('/api/v1/projects/:id/security/findings/:findingId/events', async ({ params }, reply) => {
   if (!uuidPattern.test(params.id) || !uuidPattern.test(params.findingId)) return reply.code(400).send({ message: 'ID inválido' });

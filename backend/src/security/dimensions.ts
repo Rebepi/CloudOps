@@ -1,5 +1,6 @@
 ﻿import type { CodeSeverity } from '../zipSecurityScanner.js';
 import { canonicalControlForFinding } from './controlCatalog.js';
+import { SAST_RULES } from './sastCatalog.js';
 
 export const SECURITY_DIMENSIONS = [
   { id: 'identity', label: 'Identidad y autorización', description: 'Quién puede acceder, con qué credenciales y qué privilegios.' },
@@ -103,6 +104,7 @@ function matches(value: string, pattern: RegExp) {
 }
 
 export function dimensionForFinding(finding: Pick<FindingInput, 'source' | 'category' | 'title' | 'externalId' | 'evidence'>): SecurityDimensionId {
+  if (finding.source === 'semgrep') return SAST_RULES.find((rule) => rule.id === finding.evidence?.ruleId)?.dimension ?? 'application';
   if (finding.source === 'trivy') return finding.category === 'secret' ? 'data' : 'dependencies';
   if (finding.category === 'license') return 'dependencies';
   const canonicalControl = canonicalControlForFinding(finding);
@@ -336,6 +338,20 @@ export function computeDimensionBreakdown({ assessmentType, findings, summary }:
     }
   }
   if (assessmentType !== 'code') controls.push(...awsControls(summary, findings));
+  const sast = summary.sast && typeof summary.sast === 'object' ? summary.sast as Record<string, unknown> : {};
+  if (Number(sast.filesCandidate ?? 0) > 0) {
+    const dimensions = new Set<SecurityDimensionId>(['application']);
+    const languages = Array.isArray(sast.languages) ? sast.languages as Record<string, unknown>[] : [];
+    const rules = languages.flatMap((language) => Array.isArray(language.rules) ? language.rules : []);
+    for (const rule of SAST_RULES) if (rules.includes(rule.id) && (rule.dimension !== 'identity' || sast.identityApplicable === true)) dimensions.add(rule.dimension);
+    for (const dimension of dimensions) {
+      const detected = findings.filter((finding) => finding.source === 'semgrep' && dimensionForFinding(finding) === dimension);
+      const state: ControlState = sast.state === 'completed' ? detected.length ? 'fail' : 'pass'
+        : sast.state === 'partial' ? 'partial' : sast.state === 'failed' ? 'failed' : sast.state === 'not_supported' ? 'not_supported' : 'skipped';
+      controls.push({ id: `semgrep:${dimension}`, dimension, label: dimension === 'identity' ? 'Firma JWT: regla SAST de Python' : 'SAST Semgrep: reglas del catálogo local',
+        state, detail: typeof sast.reason === 'string' ? sast.reason : `${Number(sast.filesAnalyzed ?? 0)} archivo(s) analizados; cobertura limitada al catálogo declarado.` });
+    }
+  }
   const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
   const trivy = supply.trivy && typeof supply.trivy === 'object' ? supply.trivy as Record<string, unknown> : {};
   if (Array.isArray(supply.images) && supply.images.length) {
@@ -353,6 +369,7 @@ export function computeDimensionBreakdown({ assessmentType, findings, summary }:
 }
 
 function codeAnalyzerFindings(domainId: string, findings: readonly FindingInput[]) {
+  findings = observedFindings(findings);
   return findings.filter((finding) => {
     const externalId = finding.externalId ?? '';
     const awsFinding = /^(cloudops:(root|s3|security-group|rds|cloudtrail|iam)|aws-config:|amazon-inspector:)/.test(externalId)
@@ -452,6 +469,12 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
     }
   }
   const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
+  const sast = summary.sast && typeof summary.sast === 'object' ? summary.sast as Record<string, unknown> : {};
+  if (sast.state) {
+    runs.push({ analyzerId: 'semgrep:sast', dimension: 'application', state: ['completed', 'partial', 'failed', 'skipped', 'not_supported'].includes(String(sast.state)) ? sast.state as AnalyzerRun['state'] : 'failed',
+      itemsAnalyzed: Number(sast.filesAnalyzed ?? 0), findingsCount: findings.filter((finding) => finding.source === 'semgrep').length,
+      durationMs: null, error: sast.state === 'failed' ? String(sast.reason ?? 'SAST fallido') : null, detail: { ...sast } });
+  }
   if (supply.format === 'CycloneDX') {
     runs.push({ analyzerId: 'cyclonedx:sbom', dimension: 'dependencies', state: supply.inventoryComplete === true ? 'completed' : 'partial',
       itemsAnalyzed: Number(supply.componentCount ?? 0), findingsCount: 0, durationMs: null, error: null,
@@ -464,7 +487,7 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
         itemsAnalyzed: results.filter((result) => result.state === 'completed' || result.state === 'partial').length,
         findingsCount: findings.filter((finding) => finding.source === 'trivy').length, durationMs: null,
         error: results.filter((result) => result.state === 'failed').map((result) => result.detail).join(' · ') || null,
-        detail: { reason: trivy.reason, results } });
+        detail: { reason: trivy.reason, results, tool: trivy.tool ?? null } });
     }
   }
   const timings = summary.analyzerTimings && typeof summary.analyzerTimings === 'object' ? summary.analyzerTimings as Record<string, unknown> : {};

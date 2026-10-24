@@ -8,6 +8,7 @@ type Observation = {
 
 const sourceLabels: Record<string, string> = {
   cloudops: 'CloudOps Engine', 'security-hub': 'AWS Security Hub',
+  semgrep: 'Semgrep SAST', trivy: 'Trivy',
   'aws-config': 'AWS Config', 'amazon-inspector': 'Amazon Inspector', osv: 'OSV',
 };
 

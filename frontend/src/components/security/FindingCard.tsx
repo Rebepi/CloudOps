@@ -49,6 +49,7 @@ const sourceLabel: Record<string, string> = {
   osv: 'OSV Vulnerability DB',
   cloudops: 'CloudOps Engine',
   trivy: 'Trivy',
+  semgrep: 'Semgrep SAST',
 };
 
 export function FindingCard({

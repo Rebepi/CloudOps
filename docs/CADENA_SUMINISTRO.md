@@ -1,6 +1,6 @@
 # Cadena de suministro y SBOM
 
-Motor: `1.6.0`. Metodología de código/full: `2026.16`.
+Motor actual: `1.7.0`. Metodología de código/full: `2026.17`. La base SBOM se introdujo en `1.6.0`.
 
 ## Despliegue
 
@@ -44,16 +44,17 @@ Las evaluaciones históricas permanecen intactas. Si no tienen SBOM, la ruta dev
 
 ## Trivy para imágenes
 
-Trivy es opcional y está deshabilitado de forma predeterminada. El binario no se instala automáticamente. Debe estar disponible en el entorno del backend y soportar los flags documentados de `trivy image`.
+Trivy es opcional y está deshabilitado de forma predeterminada en nuevos despliegues. Se admite un ejecutable nativo o una imagen Docker fijada. El entorno local ya se preparó y habilitó con Docker; no requiere un binario Windows global. La preparación reproducible y la configuración están en `SAST_Y_ANALIZADORES.md`.
 
 Configuración:
 
 ```dotenv
 CLOUDOPS_TRIVY_ENABLED=false
 CLOUDOPS_TRIVY_PATH=trivy
+CLOUDOPS_TRIVY_MODE=docker
 ```
 
-Para habilitarlo, verifica `trivy --version`, configura `CLOUDOPS_TRIVY_ENABLED=true` y reinicia el backend. `CLOUDOPS_TRIVY_PATH` puede indicar la ruta completa del ejecutable si no está en PATH.
+En Docker, ejecuta primero `node --import tsx scripts/prepare-security-tools.ts` desde `backend`, configura `CLOUDOPS_TRIVY_ENABLED=true` y reinicia el backend. En modalidad nativa, verifica `trivy --version`, configura `CLOUDOPS_TRIVY_MODE=native` y usa `CLOUDOPS_TRIVY_PATH` si el ejecutable no está en PATH.
 
 El adaptador usa argumentos separados y `shell: false`. Solicita `vuln,secret,license`, JSON, todos los paquetes y licencias completas. Usa `--image-src remote`, por lo que consulta el registro y no ejecuta contenedores ni instrucciones Dockerfile. Trivy puede descargar imágenes y su base de vulnerabilidades usando su propia configuración de red y caché.
 
@@ -75,9 +76,9 @@ Los límites y omisiones reducen cobertura o marcan el inventario como parcial. 
 
 ## Verificación y pendientes
 
-Se aprobaron 97 pruebas backend y 28 frontend, además de compilación y lint. Las pruebas incluyen ZIP reales de prueba, respuesta HTTP del SBOM, checksum, autenticación heredada, separación por proyecto, entradas inválidas, versiones múltiples y redacción de secretos.
+Se aprobaron 108 pruebas backend y 31 frontend, además de compilación y lint. Las pruebas incluyen ZIP reales de prueba, respuesta HTTP del SBOM, checksum, autenticación heredada, separación por proyecto, entradas inválidas, versiones múltiples y redacción de secretos.
 
-Las respuestas exitosas de Trivy se validaron con informes y ejecución simulados. Se verificó también la ruta de error de un ejecutable ausente. Este entorno no tiene Trivy instalado: no se realizó un escaneo de imagen real ni se descargaron imágenes para esta validación. La activación y validación del binario real son pendientes del despliegue.
+Además de las pruebas simuladas, se ejecutó Trivy 0.76.1 real mediante Docker sobre `alpine:3.20.3`: quince componentes y setenta y siete hallazgos. El resultado fue parcial por dos severidades desconocidas, conservando los avisos estimados. Se preparó la caché y se verificó la imagen del analizador por digest. En otros despliegues se requiere preparar/habilitar la modalidad elegida; no se afirma una instalación nativa Windows.
 
 La comprobación adicional `node --import tsx scripts/verify-sbom-roundtrip.ts`, ejecutada desde `backend`, verifica PostgreSQL real, respuesta HTTP inyectada, aislamiento por identificador de proyecto y checksum tras almacenar JSONB. Crea sus propios registros dentro de una transacción y siempre ejecuta `ROLLBACK`; no abre un servidor ni modifica evaluaciones previas. El resultado local fue descarga 200, proyecto distinto 404 y checksum coincidente. La autenticación heredada se comprueba en las pruebas HTTP unitarias.
 

@@ -63,6 +63,9 @@ test('conserva fixtures y migraciones como evidencia sin afectar el puntaje', ()
   assert.equal(fixture[0]?.evidence.scoreExcluded, true);
   assert.equal(migration[0]?.severity, 'INFORMATIONAL');
   assert.equal(migration[0]?.evidence.scoreExcluded, true);
+  const fixtureCode = analyzeTextFile('tests/fixtures/application.py', 'eval(userInput)');
+  assert.equal(fixtureCode[0]?.severity, 'INFORMATIONAL');
+  assert.equal(fixtureCode[0]?.evidence.scoreExcluded, true);
 });
 
 test('clasifica un .env poblado como exposición crítica sin conservar valores', () => {
