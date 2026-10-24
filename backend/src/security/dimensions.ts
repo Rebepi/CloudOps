@@ -56,6 +56,7 @@ export type AnalyzerRun = {
   state: 'completed' | 'partial' | 'failed' | 'skipped' | 'not_supported';
   itemsAnalyzed: number;
   findingsCount: number;
+  durationMs: number | null;
   error: string | null;
   detail: Record<string, unknown>;
 };
@@ -166,7 +167,7 @@ function controlForDomain(domain: { id: string; label: string; status: string; f
   const state: ControlState = domain.status === 'not-detected'
     ? 'not_applicable'
     : domain.status === 'partial'
-      ? 'partial'
+      ? domain.files === 0 ? 'skipped' : 'partial'
       : scoreableFindings.length ? 'fail' : excluded ? 'partial' : 'pass';
   return {
     id: `code:${domain.id}`,
@@ -381,9 +382,10 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
       runs.push({
         analyzerId: `builtin:${domain.id}`,
         dimension,
-        state: domain.status === 'measured' ? 'completed' : domain.status === 'partial' ? 'partial' : 'skipped',
+        state: domain.status === 'measured' ? 'completed' : domain.status === 'partial' && domain.files > 0 ? 'partial' : 'skipped',
         itemsAnalyzed: domain.files,
         findingsCount: codeAnalyzerFindings(domain.id, findings).length,
+        durationMs: null,
         error: null,
         detail: { status: domain.status, detail: domain.detail },
       });
@@ -392,11 +394,14 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
       runs.push({
         analyzerId: 'osv',
         dimension: 'dependencies',
-        state: summary.osvAvailable === false ? 'failed' : summary.osvAvailable === true ? 'completed' : 'skipped',
+        state: ['completed', 'partial', 'failed', 'skipped'].includes(String(summary.osvState))
+          ? summary.osvState as AnalyzerRun['state'] : summary.osvAvailable === false ? 'failed' : summary.osvAvailable === true ? 'completed' : 'skipped',
         itemsAnalyzed: Number(summary.vulnerabilitiesChecked ?? 0),
         findingsCount: findings.filter((finding) => finding.source === 'osv').length,
+        durationMs: null,
         error: typeof summary.osvError === 'string' ? summary.osvError : null,
-        detail: { dependencyCount: Number(summary.dependencyCount ?? 0), vulnerabilitiesChecked: Number(summary.vulnerabilitiesChecked ?? 0) },
+        detail: { dependencyCount: Number(summary.dependencyCount ?? 0), vulnerabilitiesChecked: Number(summary.vulnerabilitiesChecked ?? 0),
+          metrics: summary.osvMetrics ?? null, limits: Array.isArray(summary.scanLimits) ? summary.scanLimits.filter((limit) => typeof limit === 'string' && limit.startsWith('osv-')) : [] },
       });
     }
   }
@@ -424,11 +429,19 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
         state: disabled ? 'skipped' : available === false ? 'failed' : available === undefined ? 'skipped' : truncated ? 'partial' : 'completed',
         itemsAnalyzed: itemsKey ? Number(summary[itemsKey] ?? 0) : 0,
         findingsCount: awsAnalyzerFindings(analyzer.analyzerId, findings).length,
+        durationMs: null,
         error: errorKey && typeof summary[errorKey] === 'string' ? String(summary[errorKey]) : configErrors || null,
         detail: { available: available ?? null, disabled, truncated,
           ...(analyzer.analyzerId === 'aws:config' ? { resourceResults: Number(summary.configObservedResources ?? 0), rules: Number(summary.configRules ?? 0) } : {}) },
       });
     }
   }
-  return runs;
+  const timings = summary.analyzerTimings && typeof summary.analyzerTimings === 'object' ? summary.analyzerTimings as Record<string, unknown> : {};
+  return runs.map((run) => {
+    const timing = timings[run.analyzerId];
+    if (run.state === 'skipped' || !timing || typeof timing !== 'object') return run;
+    const { durationMs, scope } = timing as Record<string, unknown>;
+    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) return run;
+    return { ...run, durationMs: Math.round(durationMs), detail: { ...run.detail, timingScope: scope ?? null } };
+  });
 }

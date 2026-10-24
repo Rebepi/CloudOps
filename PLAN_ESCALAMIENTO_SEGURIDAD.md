@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 implementada y corregida, Fase 2 iniciada. Fases 3 a 9 pendientes.
+Estado al 2026-10-23: Fase 0 documentada, base de Fase 1 corregida, correlación de Fase 2 disponible para identidades conocidas y núcleo de Fase 3 implementado. Fases 4 a 9 pendientes.
 
-Versión actual: motor `1.4.0`, metodología AWS/full `2026.14` y metodología de código `2026.11`.
+Versión actual: motor `1.5.0`, metodología AWS `2026.14` y metodología de código/full `2026.15`.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -107,12 +107,12 @@ Correcciones de la revisión del 2026-10-23:
 Pendientes de alcance, antes de declarar un motor extensible completo:
 
 - Catálogo versionado de reglas y adaptadores por analizador.
-- Medición de duración real y estados de omisión por límite/lenguaje en el escáner de código.
+- Completar atribución temporal de `builtin:configuration` y estados de soporte por lenguaje. Los tiempos y límites ya instrumentados se detallan en Fase 3.
 - Cobertura específica de reglas de identidad y datos dentro del código, además de los dominios generales actuales.
 
 ### Fase 2: normalización y deduplicación entre fuentes
 
-Estado: correlación implementada para identidades conocidas de CloudOps, Security Hub, Config e Inspector. La ampliación a todos los controles y formatos sigue pendiente. AWS y full usan metodología `2026.14`; código conserva `2026.11`.
+Estado: correlación implementada para identidades conocidas de CloudOps, Security Hub, Config e Inspector. La ampliación a todos los controles y formatos sigue pendiente. Versiones vigentes indicadas al inicio del documento.
 
 Objetivo: evitar que el mismo riesgo se cuente dos veces.
 
@@ -162,6 +162,8 @@ Referencia de formato Inspector/ASFF: https://docs.aws.amazon.com/inspector/late
 
 ### Fase 3: cobertura confiable y reintentos
 
+Estado: núcleo implementado y probado; quedan pendientes las extensiones indicadas abajo.
+
 Objetivo: reducir falsos negativos por fallos transitorios y límites silenciosos.
 
 Entregables:
@@ -172,6 +174,24 @@ Entregables:
 - Comparación de cobertura entre ejecuciones.
 
 Criterio de salida: una tasa de error transitoria de OSV no deja dependencias como no evaluadas sin explicación.
+
+Implementado:
+
+- Cliente OSV separado en `backend/src/security/osvClient.ts`, con hasta tres intentos por solicitud. Reintenta errores de red, timeout, HTTP 408, 429 y 5xx; no reintenta errores permanentes 4xx ni JSON inválido.
+- Esperas exponenciales de 250 y 500 ms, respetando `Retry-After`. Si la espera solicitada supera 10 s o el plazo restante, no se adelanta la petición: se registra el límite.
+- Presupuesto compartido de 120 s para lotes y detalles. Cada intento tiene como máximo 20 s para lotes o 15 s para detalles, reducido al plazo restante.
+- Un lote posterior fallido no descarta coincidencias ni versiones evaluadas en lotes anteriores. Los resultados incompletos o inválidos no cuentan como dependencias comprobadas.
+- La falta de detalle de un aviso conserva la coincidencia y marca el análisis como parcial. La severidad de respaldo queda identificada mediante `severityEstimated`; no se presenta como severidad confirmada.
+- Límites OSV explícitos: cien versiones por lote, trescientas coincidencias, cien detalles y concurrencia de diez solicitudes de detalle. `osvMetrics` registra solicitudes, reintentos y duración; `scanLimits` registra los límites alcanzados.
+- El límite de texto ZIP y el límite de quinientos hallazgos estáticos reducen cobertura. Si ningún archivo del dominio se analizó, el control queda omitido y aporta cero cobertura.
+- `summary.analyzerTimings` conserva mediciones reales con alcance explícito. Reglas/parsing usan tiempo acumulado de ejecución; IAM/CloudTrail suman tiempos de solicitud; OSV y otros servicios usan tiempo transcurrido por servicio. Las medidas acumuladas pueden superponerse y no deben sumarse como duración total de evaluación.
+- Migración aditiva `008_analyzer_duration.cjs`: `assessment_analyzers.duration_ms` nullable. API y panel de cobertura muestran duración y reintentos OSV. `null` significa sin medición; cero ms es una medida válida tras redondeo. No se fabrican tiempos para históricos ni para dominios sin instrumentación.
+- AWS mantiene los reintentos del SDK (`maxAttempts: 2`). No se añadieron reintentos propios a proveedores de repositorio ni a otras APIs.
+- La evaluación full conserva las mediciones AWS y de código. Los cambios de cobertura se versionan; las comparaciones entre motores/metodologías distintos no muestran deltas numéricos.
+
+Despliegue: ejecutar `npm run migrate` en `backend` antes de iniciar el backend actualizado. La migración 008 se aplicó y comprobó en PostgreSQL local; los tiempos históricos siguen siendo `NULL`.
+
+Pendientes: medición de `builtin:configuration`, trazas temporales de evaluaciones que abortan antes de producir un resultado, cobertura por lenguaje con reglas versionadas y tendencias históricas por analizador/dimensión. Las pruebas de reintentos usan transporte simulado y las pruebas de integración escanean ZIP reales de prueba, sin tráfico OSV/AWS en vivo.
 
 ### Fase 4: dependencias y cadena de suministro
 
@@ -286,8 +306,8 @@ npm run lint
 npm test
 ```
 
-Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 59 pruebas backend y 21 pruebas frontend aprobadas. La validación de deduplicación y del recolector Config usa snapshots y clientes simulados; las consultas a PostgreSQL fueron solo de lectura. No se recalcularon ni sobrescribieron evaluaciones históricas ni se verificaron los nuevos permisos contra AWS en vivo.
+Verificación del 2026-10-23: compilación backend y frontend, lint frontend, 72 pruebas backend y 24 pruebas frontend aprobadas. La validación usa snapshots, clientes simulados y ZIP de prueba. Se aplicó la migración 008 en PostgreSQL local y se comprobó su columna nullable. No se recalcularon ni sobrescribieron evaluaciones históricas ni se verificaron los permisos Config adicionales contra AWS en vivo.
 
 ## 9. Próximo paso
 
-Abordar reintentos OSV y tiempos por analizador de la Fase 3, completar el catálogo de reglas de código de la Fase 1 y ampliar progresivamente las equivalencias pendientes. Para validar el detalle Config en vivo, el despliegue debe aplicar primero los dos permisos nuevos de lectura. Las evaluaciones históricas se conservan; una nueva ejecución genera el desglose corregido.
+Completar el catálogo versionado de reglas de código y las métricas pendientes de Fase 3; después iniciar SBOM de Fase 4. Para validar Config en vivo, el despliegue debe aplicar los dos permisos adicionales de lectura. Las evaluaciones históricas se conservan; una nueva ejecución genera el desglose y los tiempos actualizados.

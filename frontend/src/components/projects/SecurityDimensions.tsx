@@ -31,11 +31,24 @@ const analyzerStateLabel: Record<AnalizadorEvaluacion['state'], string> = {
   completed: 'Completado', partial: 'Parcial', failed: 'Fallido', skipped: 'Omitido', not_supported: 'No soportado',
 };
 
+const timingLabels: Record<string, string> = {
+  'cumulative-rule': 'Tiempo acumulado de reglas o parsing; excluye lectura del ZIP.',
+  'cumulative-request': 'Tiempo acumulado de solicitudes; las llamadas paralelas pueden superponerse.',
+  'elapsed-service': 'Tiempo transcurrido del servicio, incluidos reintentos y esperas.',
+};
+
 function scoreClass(score: number | null) {
   if (score === null) return 'text-muted';
   if (score < 50) return 'text-rose-400';
   if (score < 80) return 'text-amber-400';
   return 'text-emerald-400';
+}
+
+function retryLabel(detail: AnalizadorEvaluacion['detail']) {
+  const metrics = detail?.metrics;
+  if (!metrics || typeof metrics !== 'object' || !('requests' in metrics) || !('retries' in metrics)
+    || typeof metrics.requests !== 'number' || typeof metrics.retries !== 'number') return null;
+  return `${metrics.requests} solicitudes, ${metrics.retries} reintentos`;
 }
 
 export function SecurityDimensions({ dimensions = [], analyzers = [] }: { dimensions?: DimensionSeguridad[]; analyzers?: AnalizadorEvaluacion[] }) {
@@ -100,16 +113,18 @@ export function SecurityDimensions({ dimensions = [], analyzers = [] }: { dimens
       <summary className="cursor-pointer text-xs font-bold text-ink">Analizadores ejecutados ({analyzers.length})</summary>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[520px] text-left text-[11px]">
-          <thead className="text-muted"><tr><th className="pb-2 font-semibold">Analizador</th><th className="pb-2 font-semibold">Dimensión</th><th className="pb-2 font-semibold">Estado</th><th className="pb-2 text-right font-semibold">Elementos</th><th className="pb-2 text-right font-semibold">Hallazgos</th></tr></thead>
+          <thead className="text-muted"><tr><th className="pb-2 font-semibold">Analizador</th><th className="pb-2 font-semibold">Dimensión</th><th className="pb-2 font-semibold">Estado</th><th className="pb-2 text-right font-semibold">Elementos</th><th className="pb-2 text-right font-semibold">Hallazgos</th><th className="pb-2 text-right font-semibold">Duración</th></tr></thead>
           <tbody className="divide-y divide-line">{analyzers.map((analyzer) => <tr key={analyzer.analyzerId}>
-            <td className="py-2 font-mono text-[10px] text-ink">{analyzer.analyzerId}</td>
+            <td className="py-2 font-mono text-[10px] text-ink">{analyzer.analyzerId}{analyzer.analyzerId === 'osv' && <span className="block font-sans text-muted">{retryLabel(analyzer.detail)}</span>}</td>
             <td className="py-2 text-muted">{dimensions.find((dimension) => dimension.id === analyzer.dimension)?.label ?? analyzer.dimension}</td>
             <td className={`py-2 ${analyzer.state === 'failed' ? 'text-rose-400' : analyzer.state === 'completed' ? 'text-emerald-400' : 'text-amber-400'}`}>{analyzerStateLabel[analyzer.state]}</td>
             <td className="py-2 text-right text-muted">{analyzer.itemsAnalyzed}</td>
             <td className="py-2 text-right text-muted">{analyzer.findingsCount}</td>
+            <td className="py-2 text-right text-muted" title={timingLabels[String(analyzer.detail?.timingScope)] ?? 'Sin medición disponible'}>{analyzer.durationMs == null ? '—' : `${analyzer.durationMs} ms`}</td>
           </tr>)}</tbody>
         </table>
       </div>
+      <p className="mt-2 text-[10px] text-muted">Los tiempos acumulados pueden superponerse cuando hay consultas paralelas. — indica ausencia de medición.</p>
       {analyzers.filter((analyzer) => analyzer.error).map((analyzer) => <p key={`${analyzer.analyzerId}-error`} className="mt-2 text-[10px] text-rose-400">{analyzer.analyzerId}: {analyzer.error}</p>)}
     </details>}
   </section>;

@@ -2,6 +2,8 @@ import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { createHash } from 'node:crypto';
 import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
 import { frameworkFor } from './findingFramework.js';
+import { lookupOsv, type OsvDetail } from './security/osvClient.js';
+import { recordAnalyzerTiming, type AnalyzerTimings } from './security/analyzerTiming.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 
@@ -20,7 +22,7 @@ export type CodeFinding = {
   framework?: string | null;
 };
 
-type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string };
+export type Dependency = { ecosystem: 'npm' | 'PyPI' | 'Packagist'; name: string; version: string; manifest: string };
 
 export type DetectedArchitectureComponent = {
   id: string;
@@ -94,6 +96,19 @@ export function validateArchivePath(fileName: string) {
 function isTextCandidate(fileName: string) {
   const lower = basename(fileName).toLowerCase();
   return TEXT_EXTENSIONS.has(extension(fileName)) || lower === 'dockerfile' || ['composer.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock'].includes(lower);
+}
+
+function domainsForPath(fileName: string): StaticCoverageDomain['id'][] {
+  const normalized = fileName.replace(/\\/g, '/').toLowerCase();
+  const base = basename(normalized);
+  const ext = extension(fileName);
+  const domains: StaticCoverageDomain['id'][] = ['secrets'];
+  if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs'].includes(ext)) domains.push('source-code');
+  if (dependencyManifestPattern.test(base)) domains.push('dependencies');
+  if (['.tf', '.tfvars'].includes(ext) || /(?:cloudformation|template)\.ya?ml$/.test(base)) domains.push('iac');
+  if (base === 'dockerfile' || /(?:docker-)?compose.*\.ya?ml$/.test(base)) domains.push('containers');
+  if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(ext) || normalized.includes('/config/')) domains.push('configuration');
+  return domains;
 }
 
 const dependencyManifestPattern = /^(?:package-lock\.json|composer\.lock|poetry\.lock|uv\.lock|pipfile\.lock|requirements.*\.txt)$/;
@@ -205,11 +220,12 @@ function architectureComponents(fileName: string, text: string): ComponentMatch[
   return components;
 }
 
-export function analyzeTextFile(fileName: string, text: string): CodeFinding[] {
+export function analyzeTextFile(fileName: string, text: string, timings?: AnalyzerTimings): CodeFinding[] {
   const results: CodeFinding[] = [];
   const ext = extension(fileName);
   const lowerBase = basename(fileName).toLowerCase();
   const lines = text.split(/\r?\n/);
+  const secretStarted = performance.now();
   if (lowerBase === '.env' || /^\.env\./.test(lowerBase) || /(?:^|\/)(?:id_rsa|id_ed25519|credentials)$/i.test(fileName)) {
     const populatedSecretKeys = lines.flatMap((line) => {
       const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
@@ -226,10 +242,12 @@ export function analyzeTextFile(fileName: string, text: string): CodeFinding[] {
     sensitiveFinding.evidence = { file: fileName, populatedSensitiveKeys: activeSecrets };
     results.push(sensitiveFinding);
   }
+  if (timings) recordAnalyzerTiming(timings, 'builtin:secrets', secretStarted, 'cumulative-rule');
   const isTestFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(fileName.replace(/\\/g, '/'));
   const isDatabaseMigration = /(?:^|\/)(?:migrations?|alembic\/versions)(?:\/|$)/i.test(fileName.replace(/\\/g, '/'));
   for (const rule of RULES) {
     if (rule.extensions && !rule.extensions.includes(ext)) continue;
+    const started = performance.now();
     const lineIndex = lines.findIndex((line) => {
       rule.pattern.lastIndex = 0;
       return rule.pattern.test(line) && !/(?:example|sample|dummy|changeme|your[_-]|\$\{|process\.env|os\.environ)/i.test(line);
@@ -244,6 +262,11 @@ export function analyzeTextFile(fileName: string, text: string): CodeFinding[] {
         fileName, lineIndex + 1, rule.recommendation);
       if (contextual) detected.evidence = { ...detected.evidence, context: fixtureSecret ? 'test' : 'database-migration', scoreExcluded: true };
       results.push(detected);
+    }
+    if (timings) {
+      const domain = rule.category === 'secret' ? 'secrets' : rule.category === 'code' ? 'source-code'
+        : ['privileged-container', 'latest-image', 'docker-root-user', 'docker-socket'].includes(rule.id) ? 'containers' : 'iac';
+      recordAnalyzerTiming(timings, `builtin:${domain}`, started, 'cumulative-rule');
     }
   }
   return results;
@@ -323,7 +346,7 @@ function readEntry(zip: ZipFile, entry: Entry) {
   }));
 }
 
-async function scanEntries(path: string, options: Required<ZipScanOptions>) {
+async function scanEntries(path: string, options: Required<ZipScanOptions>, timings: AnalyzerTimings) {
   const zip = await openZip(path);
   const findings: CodeFinding[] = [];
   const dependencies: Dependency[] = [];
@@ -372,8 +395,8 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
         if (!validateArchivePath(entry.fileName)) throw new Error(`El ZIP contiene una ruta no segura: ${safeLine(entry.fileName)}`);
         if ((entry.generalPurposeBitFlag & 1) !== 0) throw new Error(`El ZIP contiene una entrada cifrada y no analizable: ${safeLine(entry.fileName)}`);
         uncompressedBytes += entry.uncompressedSize;
-        if (uncompressedBytes > options.maxUncompressedBytes) throw new Error('El ZIP supera el límite de tamaño descomprimido (250 MB).');
-        if (entry.uncompressedSize > options.maxEntryBytes) throw new Error(`Una entrada supera el límite individual de 8 MB: ${safeLine(entry.fileName)}`);
+        if (uncompressedBytes > options.maxUncompressedBytes) throw new Error(`El ZIP supera el límite de tamaño descomprimido (${options.maxUncompressedBytes} bytes).`);
+        if (entry.uncompressedSize > options.maxEntryBytes) throw new Error(`Una entrada supera el límite individual de ${options.maxEntryBytes} bytes: ${safeLine(entry.fileName)}`);
         if (entry.compressedSize > 0 && entry.uncompressedSize / entry.compressedSize > 150) throw new Error(`Relación de compresión sospechosa en: ${safeLine(entry.fileName)}`);
         const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
         if ((unixMode & 0o170000) === 0o120000) throw new Error(`El ZIP contiene un enlace simbólico no admitido: ${safeLine(entry.fileName)}`);
@@ -402,14 +425,7 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
             layerFiles[layer].analyzedFiles += 1;
             const text = buffer.toString('utf8');
             const normalized = entry.fileName.replace(/\\/g, '/').toLowerCase();
-            const lowerBase = basename(entry.fileName).toLowerCase();
-            const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.php', '.java', '.go', '.rb', '.cs']);
-            domainFiles.secrets.add(entry.fileName);
-            if (sourceExtensions.has(extension(entry.fileName))) domainFiles['source-code'].add(entry.fileName);
-            if (dependencyManifestPattern.test(lowerBase)) domainFiles.dependencies.add(entry.fileName);
-            if (['.tf', '.tfvars'].includes(extension(entry.fileName)) || /(?:cloudformation|template)\.ya?ml$/.test(lowerBase)) domainFiles.iac.add(entry.fileName);
-            if (lowerBase === 'dockerfile' || /(?:docker-)?compose.*\.ya?ml$/.test(lowerBase)) domainFiles.containers.add(entry.fileName);
-            if (['.yaml', '.yml', '.toml', '.ini', '.conf', '.properties', '.env'].includes(extension(entry.fileName)) || normalized.includes('/config/')) domainFiles.configuration.add(entry.fileName);
+            for (const domain of domainsForPath(entry.fileName)) domainFiles[domain].add(entry.fileName);
             const isEvidenceFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?|interaction-tests)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(normalized);
             for (const detected of isEvidenceFixture ? [] : architectureComponents(entry.fileName, text)) {
               const existing = components.get(detected.id);
@@ -419,8 +435,10 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
                 components.set(detected.id, { ...detected, evidence: [entry.fileName] });
               }
             }
-            if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text).slice(0, 500 - findings.length));
+            if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text, timings).slice(0, 500 - findings.length));
+            const dependenciesStarted = performance.now();
             dependencies.push(...parseDependencies(entry.fileName, text));
+            recordAnalyzerTiming(timings, 'builtin:dependencies', dependenciesStarted, 'cumulative-rule');
           }
         }
         zip.readEntry();
@@ -430,78 +448,59 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>) {
   });
 }
 
-type OsvResult = { vulns?: { id: string; modified?: string }[] };
-
-type OsvDetail = {
-  id: string;
-  summary?: string;
-  database_specific?: { severity?: string };
-  affected?: { package?: { ecosystem?: string; name?: string }; ranges?: { events?: { fixed?: string }[] }[]; ecosystem_specific?: { severity?: string } }[];
-};
-
-function osvSeverity(detail: OsvDetail | undefined): CodeSeverity {
-  const raw = detail?.database_specific?.severity ?? detail?.affected?.find((item) => item.ecosystem_specific?.severity)?.ecosystem_specific?.severity;
-  const normalized = raw?.toUpperCase();
-  return normalized === 'CRITICAL' || normalized === 'HIGH' || normalized === 'MEDIUM' || normalized === 'LOW' ? normalized : 'MEDIUM';
+function osvSeverity(detail: OsvDetail | undefined): { value: CodeSeverity; estimated: boolean } {
+  const affected = Array.isArray(detail?.affected) ? detail.affected : [];
+  const raw = detail?.database_specific?.severity ?? affected.find((item) => item?.ecosystem_specific?.severity)?.ecosystem_specific?.severity;
+  const normalized = typeof raw === 'string' ? raw.toUpperCase() : '';
+  return normalized === 'CRITICAL' || normalized === 'HIGH' || normalized === 'MEDIUM' || normalized === 'LOW'
+    ? { value: normalized, estimated: false } : { value: 'MEDIUM', estimated: true };
 }
 
 function fixedVersion(detail: OsvDetail | undefined, dependency: Dependency) {
-  const affected = detail?.affected?.find((item) => item.package?.ecosystem === dependency.ecosystem && item.package?.name?.toLowerCase() === dependency.name.toLowerCase());
-  return affected?.ranges?.flatMap((range) => range.events ?? []).find((event) => event.fixed)?.fixed ?? null;
-}
-
-async function lookupOsv(dependencies: Dependency[]) {
-  const unique = [...new Map(dependencies.map((dependency) => [`${dependency.ecosystem}:${dependency.name}:${dependency.version}`, dependency])).values()];
-  const matches: { dependency: Dependency; id: string }[] = [];
-  for (let index = 0; index < unique.length; index += 100) {
-    const batch = unique.slice(index, index + 100);
-    const response = await fetch('https://api.osv.dev/v1/querybatch', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(20_000),
-      body: JSON.stringify({ queries: batch.map((dependency) => ({ package: { name: dependency.name, ecosystem: dependency.ecosystem }, version: dependency.version })) }),
-    });
-    if (!response.ok) throw new Error(`OSV respondió HTTP ${response.status}`);
-    const payload = await response.json() as { results?: OsvResult[] };
-    (payload.results ?? []).forEach((result, offset) => {
-      for (const vulnerability of result.vulns ?? []) if (matches.length < 300) matches.push({ dependency: batch[offset]!, id: vulnerability.id });
-    });
-  }
-  const details = new Map<string, OsvDetail>();
-  const ids = [...new Set(matches.map((match) => match.id))].slice(0, 100);
-  for (let index = 0; index < ids.length; index += 10) {
-    const responses = await Promise.all(ids.slice(index, index + 10).map(async (id) => {
-      const response = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(15_000) });
-      if (!response.ok) return null;
-      return response.json() as Promise<OsvDetail>;
-    }));
-    for (const detail of responses) if (detail?.id) details.set(detail.id, detail);
-  }
-  return { unique, matches, details };
+  const affected = (Array.isArray(detail?.affected) ? detail.affected : []).find((item) => item?.package?.ecosystem === dependency.ecosystem
+    && typeof item.package.name === 'string' && item.package.name.toLowerCase() === dependency.name.toLowerCase());
+  return (Array.isArray(affected?.ranges) ? affected.ranges : []).flatMap((range) => Array.isArray(range?.events) ? range.events : [])
+    .find((event) => typeof event?.fixed === 'string')?.fixed ?? null;
 }
 
 export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions = {}) {
   const options = { ...DEFAULTS, ...inputOptions };
-  const archive = await scanEntries(path, options);
+  const analyzerTimings: AnalyzerTimings = {};
+  const archiveStarted = performance.now();
+  const archive = await scanEntries(path, options, analyzerTimings);
+  const archiveDurationMs = Math.round(performance.now() - archiveStarted);
+  const staticFindingLimitReached = archive.findings.length >= 500;
   const deduplicatedDependencies = [...new Map(archive.dependencies.map((item) => [`${item.ecosystem}:${item.name}:${item.version}`, item])).values()];
   let osvAvailable = false;
   let osvError: string | null = null;
   let vulnerabilitiesChecked = 0;
+  let osvState: 'completed' | 'partial' | 'failed' | 'skipped' = 'skipped';
+  let osvMetrics = { requests: 0, retries: 0, durationMs: 0 };
+  let osvLimits: string[] = [];
   if (options.lookupVulnerabilities && deduplicatedDependencies.length) {
     try {
       const osv = await lookupOsv(deduplicatedDependencies);
-      osvAvailable = true;
-      vulnerabilitiesChecked = osv.unique.length;
+      osvAvailable = osv.checked > 0;
+      vulnerabilitiesChecked = osv.checked;
+      osvState = osv.state;
+      osvMetrics = osv.metrics;
+      osvLimits = osv.limits;
+      osvError = [...osv.errors, ...osv.limits].join(' · ') || null;
+      analyzerTimings.osv = { durationMs: osv.metrics.durationMs, scope: 'elapsed-service' };
       for (const match of osv.matches) {
         const detail = osv.details.get(match.id);
         const fixed = fixedVersion(detail, match.dependency);
+        const severity = osvSeverity(detail);
         archive.findings.push({
           externalId: `${match.id}:${match.dependency.ecosystem}:${match.dependency.name}`, source: 'osv', category: 'dependency', title: `${match.id} afecta ${match.dependency.name}`,
-          description: detail?.summary ?? `La versión ${match.dependency.version} figura como afectada en OSV.`, severity: osvSeverity(detail), status: 'open',
+          description: typeof detail?.summary === 'string' ? detail.summary : `La versión ${match.dependency.version} figura como afectada en OSV.`, severity: severity.value, status: 'open',
           resource: match.dependency.manifest, recommendation: fixed ? `Actualizar a la versión ${fixed} o posterior y validar el cambio con pruebas de regresión.` : 'Actualizar a una versión corregida indicada por el aviso y validar el cambio con pruebas de regresión.',
-          evidence: { advisory: match.id, ecosystem: match.dependency.ecosystem, package: match.dependency.name, version: match.dependency.version },
+          evidence: { advisory: match.id, ecosystem: match.dependency.ecosystem, package: match.dependency.name, version: match.dependency.version, severityEstimated: severity.estimated },
         });
       }
     } catch (error) {
       osvError = error instanceof Error ? error.message : String(error);
+      osvState = 'failed';
     }
   }
   const withMetadata = archive.findings.map((item) => ({
@@ -522,12 +521,20 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const coverageMatrix: StaticCoverageDomain[] = [
     { id: 'secrets', label: 'Secretos y credenciales', status: archive.domainFileCounts.secrets ? 'measured' : 'not-detected', files: archive.domainFileCounts.secrets, detail: archive.domainFileCounts.secrets ? 'Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.' : 'No se encontraron archivos de texto analizables.' },
     { id: 'source-code', label: 'Código fuente (SAST)', status: archive.domainFileCounts['source-code'] ? 'measured' : 'not-detected', files: archive.domainFileCounts['source-code'], detail: archive.domainFileCounts['source-code'] ? `Reglas estáticas aplicadas a ${archive.domainFileCounts['source-code']} archivo(s) de código.` : 'No se detectaron extensiones de código admitidas.' },
-    { id: 'dependencies', label: 'Dependencias conocidas', status: archive.domainFileCounts.dependencies ? (osvAvailable ? 'measured' : 'partial') : 'not-detected', files: archive.domainFileCounts.dependencies, detail: archive.domainFileCounts.dependencies ? (osvAvailable ? `${vulnerabilitiesChecked} versiones consultadas en OSV.` : `Se detectaron manifiestos, pero OSV no pudo completar la consulta: ${osvError ?? 'sin detalle'}.`) : 'No se encontró un lockfile compatible; no se calificaron vulnerabilidades de dependencias.' },
+    { id: 'dependencies', label: 'Dependencias conocidas', status: archive.domainFileCounts.dependencies ? (osvState === 'completed' ? 'measured' : 'partial') : 'not-detected', files: archive.domainFileCounts.dependencies, detail: archive.domainFileCounts.dependencies ? `${vulnerabilitiesChecked} de ${deduplicatedDependencies.length} versiones consultadas en OSV. ${osvState === 'completed' ? 'Consulta completa.' : osvError ?? (osvState === 'skipped' ? 'Consulta omitida o sin versiones compatibles.' : 'Consulta incompleta.')}` : 'No se encontró un lockfile compatible; no se calificaron vulnerabilidades de dependencias.' },
     { id: 'iac', label: 'Infraestructura como código', status: archive.domainFileCounts.iac ? 'measured' : 'not-detected', files: archive.domainFileCounts.iac, detail: archive.domainFileCounts.iac ? 'Terraform/CloudFormation inspeccionado con reglas de exposición, IAM y cifrado.' : 'No se detectó Terraform o CloudFormation; este dominio no fue medido.' },
     { id: 'containers', label: 'Contenedores', status: archive.domainFileCounts.containers ? 'measured' : 'not-detected', files: archive.domainFileCounts.containers, detail: archive.domainFileCounts.containers ? 'Dockerfiles y/o archivos Compose inspeccionados.' : 'No se detectaron definiciones Docker; este dominio no fue medido.' },
     { id: 'configuration', label: 'Configuración desplegable', status: archive.domainFileCounts.configuration ? 'measured' : 'not-detected', files: archive.domainFileCounts.configuration, detail: archive.domainFileCounts.configuration ? 'Archivos de configuración inspeccionados para exposición y valores inseguros.' : 'No se detectaron archivos de configuración compatibles.' },
   ];
-  const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' ? 0.5 : 0), 0);
+  const textLimited = archive.repositoryEntries.filter((entry) => entry.analysisStatus === 'text-limit');
+  for (const domain of coverageMatrix) {
+    const skipped = textLimited.filter((entry) => domainsForPath(entry.path).includes(domain.id)).length;
+    if (skipped || staticFindingLimitReached && domain.id !== 'dependencies' && domain.status !== 'not-detected') {
+      domain.status = 'partial';
+      domain.detail += skipped ? ` ${skipped} archivo(s) omitido(s) por límite de texto.` : ' Se alcanzó el límite de 500 hallazgos estáticos.';
+    }
+  }
+  const observedControls = coverageMatrix.reduce((total, domain) => total + (domain.status === 'measured' ? 1 : domain.status === 'partial' && domain.files > 0 ? 0.5 : 0), 0);
   const totalControls = coverageMatrix.length;
   const coverage = Math.round(observedControls / totalControls * 100);
   const layerLabels: Record<RepositoryLayer, string> = {
@@ -551,7 +558,10 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
       scoreableCounts, excludedFromScore: findings.length - scoreableFindings.length,
       scoreCapsApplied: criticalSecretExposure ? ['critical-secret-exposure:45'] : [],
       filesAnalyzed: archive.filesAnalyzed, dependencyCount: deduplicatedDependencies.length, vulnerabilitiesChecked,
-      osvAvailable, osvError, extensions: archive.extensions,
+      osvAvailable, osvError, osvState, osvMetrics, analyzerTimings, archiveDurationMs,
+      scanLimits: [...osvLimits, ...(textLimited.length ? ['zip-text-limit'] : []), ...(staticFindingLimitReached ? ['static-finding-limit'] : [])],
+      filesSkippedByTextLimit: textLimited.length,
+      extensions: archive.extensions,
       detectedArchitecture: {
         source: 'repository-static-evidence',
         components: archive.components,
@@ -568,7 +578,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         'La ausencia de un hallazgo no demuestra ausencia de una vulnerabilidad.',
       ],
       methodology: 'Análisis estático basado en evidencias del repositorio: secretos, patrones de código, configuración/IaC, contenedores e inventario de dependencias contrastado con OSV.',
-      methodologyVersion: '2026.11',
+      methodologyVersion: '2026.15',
     },
   };
 }

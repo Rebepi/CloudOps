@@ -22,6 +22,7 @@ import { BudgetsClient, DescribeBudgetsCommand } from '@aws-sdk/client-budgets';
 import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from '@aws-sdk/client-compute-optimizer';
 import { config } from './config.js';
 import { collectConfigPosture } from './security/configCollector.js';
+import { measureAnalyzer, recordAnalyzerTiming, type AnalyzerTimings } from './security/analyzerTiming.js';
 
 const sourceCredentials = fromIni({ profile: config.awsProfile });
 const credentials = config.awsRoleArn
@@ -325,30 +326,33 @@ export async function cpuMetrics(region: string, instanceIds: string[]) {
 }
 
 export async function security(region: string) {
+  const analyzerTimings: AnalyzerTimings = {};
+  const timed = <T>(id: string, operation: () => Promise<T>) => measureAnalyzer(analyzerTimings, id, 'cumulative-request', operation);
   const [users, roles, summary, trails, identity] = await Promise.all([
-    aws.iam.send(new ListUsersCommand({ MaxItems: 100 })),
-    aws.iam.send(new ListRolesCommand({ MaxItems: 100 })),
-    aws.iam.send(new GetAccountSummaryCommand({})),
-    new CloudTrailClient(clientConfig(region)).send(new DescribeTrailsCommand({ includeShadowTrails: true })),
+    timed('aws:iam', () => aws.iam.send(new ListUsersCommand({ MaxItems: 100 }))),
+    timed('aws:iam', () => aws.iam.send(new ListRolesCommand({ MaxItems: 100 }))),
+    timed('aws:iam', () => aws.iam.send(new GetAccountSummaryCommand({}))),
+    timed('aws:cloudtrail', () => new CloudTrailClient(clientConfig(region)).send(new DescribeTrailsCommand({ includeShadowTrails: true }))),
     aws.sts.send(new GetCallerIdentityCommand({})),
   ]);
   const identities = await Promise.all((users.Users ?? []).map(async (u) => {
     const [mfa, attached, inline] = await Promise.all([
-      aws.iam.send(new ListMFADevicesCommand({ UserName: u.UserName })),
-      aws.iam.send(new ListAttachedUserPoliciesCommand({ UserName: u.UserName })),
-      aws.iam.send(new ListUserPoliciesCommand({ UserName: u.UserName })),
+      timed('aws:iam', () => aws.iam.send(new ListMFADevicesCommand({ UserName: u.UserName }))),
+      timed('aws:iam', () => aws.iam.send(new ListAttachedUserPoliciesCommand({ UserName: u.UserName }))),
+      timed('aws:iam', () => aws.iam.send(new ListUserPoliciesCommand({ UserName: u.UserName }))),
     ]);
     return { name: u.UserName, arn: u.Arn, createdAt: u.CreateDate?.toISOString(), mfa: (mfa.MFADevices?.length ?? 0) > 0,
       policies: [...(attached.AttachedPolicies ?? []).map((p) => p.PolicyName ?? ''), ...(inline.PolicyNames ?? [])].filter(Boolean) };
   }));
   const mappedRoles = await Promise.all((roles.Roles ?? []).map(async (r) => {
     const [attached, inline] = await Promise.all([
-      aws.iam.send(new ListAttachedRolePoliciesCommand({ RoleName: r.RoleName })),
-      aws.iam.send(new ListRolePoliciesCommand({ RoleName: r.RoleName })),
+      timed('aws:iam', () => aws.iam.send(new ListAttachedRolePoliciesCommand({ RoleName: r.RoleName }))),
+      timed('aws:iam', () => aws.iam.send(new ListRolePoliciesCommand({ RoleName: r.RoleName }))),
     ]);
     return { name: r.RoleName, arn: r.Arn, createdAt: r.CreateDate?.toISOString(),
       policies: [...(attached.AttachedPolicies ?? []).map((p) => p.PolicyName ?? ''), ...(inline.PolicyNames ?? [])].filter(Boolean) };
   }));
+  const hubStarted = performance.now();
   let findings: SecurityHubFinding[] = [];
   let findingsError: string | null = null;
   let findingsTruncated = false;
@@ -387,6 +391,7 @@ export async function security(region: string) {
       findingsError = securityHubError(v2Error);
     }
   }
+  recordAnalyzerTiming(analyzerTimings, 'aws:security-hub', hubStarted, 'elapsed-service');
   let standards: { subscriptionArn?: string; standardsArn?: string; name: string; status?: string; controlsUpdatable?: string }[] = [];
   let standardsError: string | null = null;
   try {
@@ -405,15 +410,20 @@ export async function security(region: string) {
   }
   const trailStatuses = await Promise.all((trails.trailList ?? []).map(async (trail) => {
     try {
-      const status = await new CloudTrailClient(clientConfig(region)).send(new GetTrailStatusCommand({ Name: trail.TrailARN ?? trail.Name }));
+      const status = await timed('aws:cloudtrail', () => new CloudTrailClient(clientConfig(region)).send(new GetTrailStatusCommand({ Name: trail.TrailARN ?? trail.Name })));
       return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: status.IsLogging };
     } catch { return { name: trail.Name, arn: trail.TrailARN, multiRegion: trail.IsMultiRegionTrail, logFileValidation: trail.LogFileValidationEnabled, isLogging: null }; }
   }));
   const [configResult, inspectorResult, s3Result, networkResult, rdsResult] = await Promise.allSettled([
-    configSecurityPosture(region), inspectorSecurityPosture(region), s3SecurityPosture(region), networkSecurityPosture(region), rdsSecurityPosture(region),
+    measureAnalyzer(analyzerTimings, 'aws:config', 'elapsed-service', () => configSecurityPosture(region)),
+    measureAnalyzer(analyzerTimings, 'aws:inspector', 'elapsed-service', () => inspectorSecurityPosture(region)),
+    measureAnalyzer(analyzerTimings, 'aws:s3', 'elapsed-service', () => s3SecurityPosture(region)),
+    measureAnalyzer(analyzerTimings, 'aws:ec2-network', 'elapsed-service', () => networkSecurityPosture(region)),
+    measureAnalyzer(analyzerTimings, 'aws:rds', 'elapsed-service', () => rdsSecurityPosture(region)),
   ]);
   return {
     accountId: identity.Account,
+    analyzerTimings,
     partition: identity.Arn?.split(':')[1],
     region,
     accountSummary: summary.SummaryMap ?? {}, identities,

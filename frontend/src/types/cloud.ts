@@ -155,6 +155,7 @@ export interface AnalizadorEvaluacion {
   state: 'completed' | 'partial' | 'failed' | 'skipped' | 'not_supported';
   itemsAnalyzed: number;
   findingsCount: number;
+  durationMs?: number | null;
   error?: string | null;
   detail?: Record<string, unknown>;
   createdAt?: string;

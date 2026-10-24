@@ -1,9 +1,11 @@
 import { computeFingerprint } from './findingFingerprint.js';
 import { deduplicateSecurityFindings } from './security/canonicalFindings.js';
 import { frameworkFor, isApplicableForScore } from './findingFramework.js';
+import type { AnalyzerTimings } from './security/analyzerTiming.js';
 
 export type AwsSecuritySnapshot = {
   accountId?: string;
+  analyzerTimings?: AnalyzerTimings;
   partition?: string;
   region?: string;
   truncated?: boolean;
@@ -310,6 +312,7 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
     confidence: coverage === 100 ? 'high' : coverage >= 75 ? 'medium' : 'low',
     summary: {
       counts,
+      analyzerTimings: snapshot.analyzerTimings ?? {},
       observedControls,
       totalControls,
       deduplicatedFindings: findings.length - deduplicated.length,

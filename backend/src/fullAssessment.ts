@@ -70,6 +70,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
     summary: {
       ...code.summary,
       ...aws.summary,
+      analyzerTimings: { ...(code.summary.analyzerTimings as Record<string, unknown> ?? {}), ...(aws.summary.analyzerTimings as Record<string, unknown> ?? {}) },
       counts,
       deduplicatedFindings: input.length - combined.length
         + Number(aws.summary.deduplicatedFindings ?? 0) + Number(code.summary.deduplicatedFindings ?? 0),
@@ -80,7 +81,7 @@ export function mergeAssessments(aws: MergeEvaluation, code: MergeEvaluation): M
       },
       scoreCapsApplied: criticalExposure ? [criticalSecretExposure ? 'critical-secret-exposure:45' : 'critical-finding:45'] : [],
       methodology: 'Evaluación combinada de cuenta AWS, código, dependencias e IaC; puntaje único con deduplicación entre fuentes y exclusión de hallazgos de cobertura opcional.',
-      methodologyVersion: '2026.14',
+      methodologyVersion: '2026.15',
     },
   };
 }

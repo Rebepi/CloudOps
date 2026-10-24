@@ -83,7 +83,7 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
   `, [assessmentId]);
   const analyzers = await db.query(`
     SELECT analyzer_id AS "analyzerId", dimension, state, items_analyzed AS "itemsAnalyzed",
-      findings_count AS "findingsCount", error, detail, created_at AS "createdAt"
+      findings_count AS "findingsCount", duration_ms AS "durationMs", error, detail, created_at AS "createdAt"
     FROM assessment_analyzers WHERE assessment_id=$1 ORDER BY analyzer_id
   `, [assessmentId]);
   return { ...assessment.rows[0], findings: findings.rows, analyzers: analyzers.rows };
@@ -229,13 +229,13 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
       dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
     WHERE id=$1
   `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
-    String(evaluation.summary.methodologyVersion ?? '2026.11'), JSON.stringify(breakdown), JSON.stringify(controls), '1.4.0']);
+    String(evaluation.summary.methodologyVersion ?? '2026.15'), JSON.stringify(breakdown), JSON.stringify(controls), '1.5.0']);
   await client.query('DELETE FROM assessment_analyzers WHERE assessment_id=$1', [assessmentId]);
   for (const run of analyzers) {
     await client.query(`
-      INSERT INTO assessment_analyzers(id,assessment_id,analyzer_id,dimension,state,items_analyzed,findings_count,error,detail)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    `, [randomUUID(), assessmentId, run.analyzerId, run.dimension, run.state, run.itemsAnalyzed, run.findingsCount, run.error, JSON.stringify(run.detail)]);
+      INSERT INTO assessment_analyzers(id,assessment_id,analyzer_id,dimension,state,items_analyzed,findings_count,error,detail,duration_ms)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    `, [randomUUID(), assessmentId, run.analyzerId, run.dimension, run.state, run.itemsAnalyzed, run.findingsCount, run.error, JSON.stringify(run.detail), run.durationMs]);
   }
 }
 

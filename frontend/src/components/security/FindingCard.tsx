@@ -181,6 +181,7 @@ export function FindingCard({
             <span className={`rounded-xl border px-2.5 py-1 text-[10px] uppercase tracking-wider ${severityStyle[finding.severity]}`}>
               {finding.severity}
             </span>
+            {finding.evidence.severityEstimated === true && <span className="text-[10px] text-amber-400" title="El aviso no incluye una severidad utilizable por el analizador.">Severidad estimada</span>}
             <span className={`rounded-xl border px-2.5 py-0.5 text-[10px] font-medium ${lifecycleStyle[finding.status] ?? lifecycleStyle.open}`}>
               {lifecycleLabel[finding.status] ?? finding.status}
             </span>
