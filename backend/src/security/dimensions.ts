@@ -1,6 +1,7 @@
 ﻿import type { CodeSeverity } from '../zipSecurityScanner.js';
 import { canonicalControlForFinding } from './controlCatalog.js';
 import { SAST_RULES } from './sastCatalog.js';
+import { iacDimension } from './iacCatalog.js';
 
 export const SECURITY_DIMENSIONS = [
   { id: 'identity', label: 'Identidad y autorización', description: 'Quién puede acceder, con qué credenciales y qué privilegios.' },
@@ -104,6 +105,8 @@ function matches(value: string, pattern: RegExp) {
 }
 
 export function dimensionForFinding(finding: Pick<FindingInput, 'source' | 'category' | 'title' | 'externalId' | 'evidence'>): SecurityDimensionId {
+  if (finding.source === 'trivy-config' || finding.evidence?.policyOrigin === 'cloudops-literal-iam') return iacDimension(String(finding.evidence?.policyId ?? ''));
+  if (finding.externalId?.startsWith('cloudops:iam-wildcard:')) return 'identity';
   if (finding.source === 'gitleaks') return 'data';
   if (finding.source === 'semgrep') return SAST_RULES.find((rule) => rule.id === finding.evidence?.ruleId)?.dimension ?? 'application';
   if (finding.source === 'trivy') return finding.category === 'secret' ? 'data' : 'dependencies';
@@ -339,6 +342,20 @@ export function computeDimensionBreakdown({ assessmentType, findings, summary }:
     }
   }
   if (assessmentType !== 'code') controls.push(...awsControls(summary, findings));
+  const iac = summary.iac && typeof summary.iac === 'object' ? summary.iac as Record<string, unknown> : {};
+  if (Number(iac.filesCandidate ?? 0) > 0) {
+    const evaluated = Array.isArray(iac.evaluatedDimensions) && iac.evaluatedDimensions.length ? iac.evaluatedDimensions : ['configuration'];
+    for (const id of evaluated) {
+      if (!SECURITY_DIMENSIONS.some((dimension) => dimension.id === id)) continue;
+      const dimension = id as SecurityDimensionId;
+      const detected = findings.some((finding) => (finding.source === 'trivy-config' || finding.evidence?.policyOrigin === 'cloudops-literal-iam')
+        && dimensionForFinding(finding) === dimension && scoreable(finding) && isNonInformational(finding));
+      const state: ControlState = iac.state === 'completed' ? detected ? 'fail' : 'pass' : iac.state === 'partial' ? 'partial'
+        : iac.state === 'failed' ? 'failed' : iac.state === 'not_supported' ? 'not_supported' : 'skipped';
+      controls.push({ id: `trivy:iac:${dimension}`, dimension, label: 'IaC declarada: políticas Trivy / IAM literal', state,
+        detail: typeof iac.reason === 'string' ? iac.reason : 'Solo declaraciones del snapshot; no acredita despliegue ni cumplimiento formal.' });
+    }
+  }
   const secrets = summary.secrets && typeof summary.secrets === 'object' ? summary.secrets as Record<string, unknown> : {};
   if (Number(secrets.filesCandidate ?? 0) > 0) {
     const detected = observedFindings(findings).filter((finding) => finding.source === 'gitleaks' && isNonInformational(finding) && scoreable(finding));
@@ -383,7 +400,7 @@ function codeAnalyzerFindings(domainId: string, findings: readonly FindingInput[
     const externalId = finding.externalId ?? '';
     const awsFinding = /^(cloudops:(root|s3|security-group|rds|cloudtrail|iam)|aws-config:|amazon-inspector:)/.test(externalId)
       || ['security-hub', 'aws-config', 'amazon-inspector'].includes(finding.source.toLowerCase());
-    if (awsFinding || finding.source !== 'cloudops') return false;
+    if (awsFinding || finding.source !== 'cloudops' || externalId.startsWith('cloudops-iac:')) return false;
     const container = /cloudops:(privileged-container|latest-image|docker-root-user|docker-socket):/.test(externalId);
     switch (domainId) {
       case 'secrets': return finding.category === 'secret';
@@ -480,6 +497,13 @@ export function buildAnalyzerRuns({ assessmentType, findings, summary }: Breakdo
   const supply = summary.supplyChain && typeof summary.supplyChain === 'object' ? summary.supplyChain as Record<string, unknown> : {};
   const sast = summary.sast && typeof summary.sast === 'object' ? summary.sast as Record<string, unknown> : {};
   const secrets = summary.secrets && typeof summary.secrets === 'object' ? summary.secrets as Record<string, unknown> : {};
+  const iac = summary.iac && typeof summary.iac === 'object' ? summary.iac as Record<string, unknown> : {};
+  if (iac.state) {
+    runs.push({ analyzerId: 'trivy:iac', dimension: 'configuration', state: ['completed', 'partial', 'failed', 'skipped', 'not_supported'].includes(String(iac.state)) ? iac.state as AnalyzerRun['state'] : 'failed',
+      itemsAnalyzed: Number(iac.targetsAnalyzed ?? 0), findingsCount: findings.filter((finding) => finding.source === 'trivy-config' || finding.evidence?.policyOrigin === 'cloudops-literal-iam').length,
+      durationMs: null, error: iac.state === 'failed' ? String(iac.reason ?? 'IaC fallido') : null,
+      detail: { ...iac, itemsBasis: 'reported-policy-targets-and-literal-iam-documents' } });
+  }
   if (secrets.state) {
     runs.push({ analyzerId: 'gitleaks:repository', dimension: 'data', state: ['completed', 'partial', 'failed', 'skipped'].includes(String(secrets.state)) ? secrets.state as AnalyzerRun['state'] : 'failed',
       itemsAnalyzed: Number(secrets.filesAnalyzed ?? 0), findingsCount: Number(secrets.detections ?? 0), durationMs: null,

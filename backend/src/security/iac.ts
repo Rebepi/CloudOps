@@ -45,7 +45,7 @@ export function detectIacKind(path: string, text?: string): IacKind | null {
 
 export function safeIacPath(path: string) {
   const normalized = path.replace(/\\/g, '/');
-  if (!normalized || normalized.startsWith('/') || /[\0:]/.test(normalized)) return false;
+  if (!normalized || normalized.startsWith('/') || /[\x00-\x1f<>:"|?*]/.test(normalized)) return false;
   return normalized.split('/').every((part) => part && part !== '.' && part !== '..' && part.length <= 180 && !/[ .]$/.test(part)
     && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 }
@@ -97,6 +97,7 @@ export function parseIacReport(report: unknown, files: IacSource[], stage: strin
   const known = new Map(files.map((file) => [file.path.replace(/\\/g, '/'), file]));
   const findings: CodeFinding[] = [];
   const reportedKinds = new Set<string>();
+  const evaluatedDimensions = new Set<string>();
   let targets = 0;
   let successes = 0;
   let failures = 0;
@@ -112,15 +113,19 @@ export function parseIacReport(report: unknown, files: IacSource[], stage: strin
     if (target === null) { invalid++; continue; }
     const group = files.filter((file) => file.path === target || posix.dirname(file.path) === target || !target && posix.dirname(file.path) === '.');
     if (!group.length) { invalid++; continue; }
+    if (result.Misconfigurations !== undefined && !Array.isArray(result.Misconfigurations)) { invalid++; continue; }
+    const summary = record(result.MisconfSummary);
+    if (count(summary.Successes) + count(summary.Failures) + count(summary.Exceptions) === 0 && !list(result.Misconfigurations).length) continue;
     targets++;
     reportedKinds.add(kind);
-    const summary = record(result.MisconfSummary);
     successes += count(summary.Successes);
     failures += count(summary.Failures);
     exceptions += count(summary.Exceptions);
     let detailedFailures = 0;
     for (const raw of list(result.Misconfigurations)) {
       const check = record(raw);
+      const checkedId = (text(check.AVDID) || text(check.ID)).replace(/^AVD-/, '');
+      if (/^[A-Za-z0-9._-]{1,120}$/.test(checkedId)) evaluatedDimensions.add(iacDimension(checkedId));
       const status = text(check.Status).toUpperCase();
       if (status === 'PASS' || status === 'EXCEPTION') continue;
       if (status !== 'FAIL') { invalid++; continue; }
@@ -162,7 +167,7 @@ export function parseIacReport(report: unknown, files: IacSource[], stage: strin
     }
     if (count(summary.Failures) > detailedFailures) invalid++;
   }
-  return { findings, reportedKinds: [...reportedKinds], targets, successes, failures, exceptions, invalid, estimated, limited };
+  return { findings, reportedKinds: [...reportedKinds], evaluatedDimensions: [...evaluatedDimensions], targets, successes, failures, exceptions, invalid, estimated, limited };
 }
 
 export async function scanIac(sources: IacSource[], options: IacOptions | null) {
@@ -205,7 +210,8 @@ export async function scanIac(sources: IacSource[], options: IacOptions | null) 
   unresolved.push(...iam.unresolved);
   const base = { catalog: IAC_CATALOG, filesCandidate: sources.length, filesSubmitted: 0, filesSkipped: skipped.length, skipped: skipped.slice(0, 100),
     unresolved: unresolved.slice(0, 100), conclusiveIamFiles: iam.conclusiveStandaloneFiles,
-    targetsAnalyzed: 0, checks: { successes: 0, failures: 0, exceptions: 0 }, reportedKinds: [] as string[],
+    targetsAnalyzed: iam.inspectedFiles.length, checks: { successes: iam.successes, failures: iam.findings.length, exceptions: 0 },
+    reportedKinds: iam.inspectedFiles.length ? ['iam-policy'] : [] as string[], evaluatedDimensions: iam.inspectedFiles.length ? ['identity'] : [] as string[],
     kinds: [...new Set(sources.map((source) => source.kind))], engine: { mode: options?.mode ?? 'docker', image: (options?.mode ?? 'docker') === 'docker' ? TRIVY_IMAGE : null, vendorInvoked: false } };
   const finish = (state: 'completed' | 'partial' | 'failed' | 'skipped' | 'not_supported', reason: string | null, findings: CodeFinding[] = [], executed = false) => ({
     ...base, state, reason, findings, durationMs: executed ? Math.max(0, Math.round(performance.now() - started)) : null,
@@ -216,11 +222,12 @@ export async function scanIac(sources: IacSource[], options: IacOptions | null) 
     base.filesSubmitted = selected.length;
     base.targetsAnalyzed = iam.inspectedFiles.length;
     base.reportedKinds = iam.inspectedFiles.length ? ['iam-policy'] : [];
+    base.evaluatedDimensions = iam.inspectedFiles.length ? ['identity'] : [];
     base.checks = { successes: iam.successes, failures: iam.findings.length, exceptions: 0 };
     return finish(skipped.length || unresolved.length || !iam.inspectedFiles.length ? 'partial' : 'completed',
       'Perfil de documentos IAM literales; no se invocó el escáner Trivy.', iam.findings, true);
   }
-  if (options.mode === 'native') return finish('not_supported', 'El análisis IaC con referencias de archivos requiere la modalidad Docker aislada.', iam.findings);
+  if (options.mode === 'native') return finish(iam.inspectedFiles.length ? 'partial' : 'not_supported', 'El análisis IaC con referencias de archivos requiere la modalidad Docker aislada.', iam.findings, iam.inspectedFiles.length > 0);
   let stage: string | undefined;
   try {
     const parent = join(tmpdir(), 'opencode');
@@ -232,6 +239,7 @@ export async function scanIac(sources: IacSource[], options: IacOptions | null) 
       const path = join(input, ...source.path.split('/'));
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, source.text!, { flag: 'wx' });
+      base.filesSubmitted++;
     }
     const docker = (options.mode ?? 'docker') === 'docker';
     base.engine.vendorInvoked = true;
@@ -247,12 +255,13 @@ export async function scanIac(sources: IacSource[], options: IacOptions | null) 
     base.targetsAnalyzed = parsed.targets + iam.inspectedFiles.length;
     base.checks = { successes: parsed.successes + iam.successes, failures: parsed.failures + iam.findings.length, exceptions: parsed.exceptions };
     base.reportedKinds = [...new Set([...parsed.reportedKinds, ...(iam.inspectedFiles.length ? ['iam-policy'] : [])])];
+    base.evaluatedDimensions = [...new Set([...parsed.evaluatedDimensions, ...(iam.inspectedFiles.length ? ['identity'] : [])])];
     const missingKind = selected.some((source) => !base.reportedKinds.includes(source.kind));
     const partial = skipped.length > 0 || unresolved.length > 0 || parsed.invalid > 0 || parsed.estimated > 0 || parsed.limited || parsed.exceptions > 0
       || missingKind || base.targetsAnalyzed === 0 || base.checks.successes + base.checks.failures + base.checks.exceptions === 0;
     return finish(partial ? 'partial' : 'completed', partial ? 'Existen omisiones, referencias no resueltas, excepciones o resultados incompletos; revisar cobertura.' : null, [...parsed.findings, ...iam.findings], true);
   } catch {
-    return finish('failed', 'No se pudo completar Trivy config; revisar motor, sintaxis y límites.', [], true);
+    return finish(iam.inspectedFiles.length ? 'partial' : 'failed', 'No se pudo completar Trivy config; se conservan las observaciones IAM literales disponibles.', iam.findings, true);
   } finally {
     if (stage) await rm(stage, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }

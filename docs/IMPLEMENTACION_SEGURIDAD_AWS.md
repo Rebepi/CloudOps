@@ -1,6 +1,6 @@
 # Implementación de análisis de seguridad en CloudOps
 
-> Actualización de seguimiento (2026-10-23): el avance vigente está en `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva las observaciones históricas del 2026-10-14. Motor `1.8.0`, metodología AWS `2026.14` y código/full `2026.18`. Incluye SAST Semgrep, secretos Gitleaks, correlación conocida entre fuentes, OSV acotado, tiempos y SBOM CycloneDX descargable. Semgrep 1.182.0, Trivy 0.76.1 y Gitleaks 8.30.1 se prepararon y validaron realmente en Docker. Las migraciones existentes deben aplicarse en otros despliegues; no hay migración adicional para Fase 6. Los permisos Config adicionales siguen pendientes de validación AWS. Guías: `CADENA_SUMINISTRO.md`, `SAST_Y_ANALIZADORES.md` y `SECRETOS_REPOSITORIO.md`.
+> Seguimiento vigente: `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva las observaciones históricas del 2026-10-14. Motor `1.9.0`, metodología AWS `2026.14` y código/full `2026.19`. Incluye IaC Trivy config y políticas IAM literales, SAST Semgrep, secretos Gitleaks, correlación conocida entre fuentes, OSV acotado, tiempos y SBOM. Los analizadores se validaron realmente en Docker; las limitaciones parciales no se convierten en aprobados. No hay migración adicional para Fase 7. Los permisos Config adicionales siguen pendientes de validación AWS. Guías: `INFRAESTRUCTURA_DECLARADA.md`, `CADENA_SUMINISTRO.md`, `SAST_Y_ANALIZADORES.md` y `SECRETOS_REPOSITORIO.md`.
 
 Última actualización: 2026-10-14  
 Cuenta de prueba: `143924590537`  

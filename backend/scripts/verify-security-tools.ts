@@ -30,3 +30,4 @@ assert.ok(trivy.state === 'completed' || trivy.state === 'partial');
 assert.ok(trivy.results.some((result) => result.state === 'completed' || result.state === 'partial'));
 assert.ok(trivy.components.length > 0);
 await import('./verify-repository-secrets.js');
+await import('./verify-iac.js');

@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado al 2026-10-23: bases de Fases 0 a 6 implementadas, con Semgrep, Trivy y Gitleaks preparados y verificados realmente. Las ampliaciones indicadas en cada fase y las Fases 7 a 9 siguen pendientes.
+Estado actual: bases de Fases 0 a 7 implementadas, con Semgrep, Trivy y Gitleaks preparados y verificados realmente. Las ampliaciones indicadas en cada fase y las Fases 8 y 9 siguen pendientes.
 
-Versión actual: motor `1.8.0`, metodología AWS `2026.14` y metodología de código/full `2026.18`.
+Versión actual: motor `1.9.0`, metodología AWS `2026.14` y metodología de código/full `2026.19`.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -280,6 +280,8 @@ Guía de alcance, privacidad, límites y reproducción: `docs/SECRETOS_REPOSITOR
 
 ### Fase 7: infraestructura como código y contenedores
 
+Estado: base implementada y validada con Trivy config real, más verificación propia de documentos IAM literales. Las limitaciones de semántica y formatos se mantienen explícitas.
+
 Objetivo: evaluar configuración antes del despliegue.
 
 Entregables:
@@ -290,6 +292,19 @@ Entregables:
 - Distinción entre infraestructura detectada y recursos desplegados.
 
 Criterio de salida: un Security Group abierto en Terraform se detecta aunque no exista en AWS.
+
+Implementado:
+
+- Perfil `2026.10.iac1`: Terraform, CloudFormation, Kubernetes y Dockerfile, con comprobaciones embebidas de Trivy 0.76.1 fijado por digest. No se actualizan políticas durante el análisis ni hay red en el contenedor.
+- Árbol temporal privado con estructura de módulos locales, variables y archivos auxiliares presentes. Se validan rutas, colisiones y nombres Windows antes de materializar. No se ejecuta el proyecto ni se invocan herramientas de despliegue.
+- Política propia `CLOUDOPS-IAM-0001` para JSON/YAML literal: distingue Allow/Deny, comodines y recursos acotados. IAM HCL calculado, tags/condiciones y referencias no verificadas conservan estado parcial. No se reactivan globalmente checks retirados del proveedor.
+- Referencias relacionadas CIS/FSBP/Kubernetes cuando hay correspondencia explícita; no se declara cumplimiento de recursos desplegados. Hallazgos y panel identifican siempre la infraestructura como declaración no verificada.
+- Normalización sin mensajes variables, código ni valores del proveedor; corroboración demostrable con firmas internas, cobertura por dimensión y tiempo del analizador.
+- Tipos no soportados (incluido Compose/Helm), módulos externos, supresiones y resultados vacíos no se convierten en aprobados. Si falla Trivy se conservan observaciones IAM literales disponibles.
+- Validación real: 35 hallazgos en las declaraciones vulnerables y cero en las corregidas; ambas variantes parciales por IAM HCL no acreditado. Un Dockerfile compatible aislado completó 27 evaluaciones sin fallo. Un caso con supresión permaneció parcial.
+- `CLOUDOPS_IAC_ENABLED=true` habilitado localmente en el archivo ignorado; las plantillas mantienen activación explícita. No hay migración adicional.
+
+Guía, políticas, referencias y límites: `docs/INFRAESTRUCTURA_DECLARADA.md`. Ampliaciones pendientes: IAM HCL completo, otros renderizadores y correspondencias verificadas adicionales.
 
 ### Fase 8: expansión AWS y reducción de ruido
 
@@ -352,8 +367,8 @@ npm run lint
 npm test
 ```
 
-Verificación del 2026-10-23: compilación backend/frontend, lint, 119 pruebas backend y 34 frontend aprobadas. Se ejecutaron Semgrep, Trivy y Gitleaks reales en Docker. Semgrep detectó catorce hallazgos en cuatro fuentes y ejercitó doce reglas; Trivy conservó quince componentes y setenta y siete hallazgos de una imagen real, con estado parcial por dos severidades desconocidas. Gitleaks detectó cuatro casos controlados y cero en el control negativo, manteniendo redacción y contexto. No se sobrescribieron evaluaciones históricas ni se modificaron políticas, servicios o credenciales AWS. Los permisos Config adicionales siguen pendientes de validación en vivo.
+Verificación de la entrega: compilación backend/frontend, lint, 136 pruebas backend y 37 frontend aprobadas. Además de los casos reales de Semgrep, Trivy de imágenes y Gitleaks documentados, se ejecutó Trivy config sin red sobre Terraform, CloudFormation, Kubernetes y Dockerfile. Se verificaron casos vulnerables/corregidos, módulos locales y supresiones sin aprobar alcance no resuelto. No se sobrescribieron evaluaciones históricas ni se desplegaron recursos o modificaron políticas/credenciales AWS. Los permisos Config adicionales siguen pendientes de validación en vivo. El audit backend quedó sin vulnerabilidades conocidas tras actualizar los parches afectados.
 
 ## 9. Próximo paso
 
-Continuar con Fase 7 (infraestructura como código y contenedores), ampliar catálogos y resolver las métricas/formatos pendientes. En otros entornos, aplicar las migraciones existentes, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera SAST, secretos, SBOM, desglose y tiempos.
+Continuar con Fase 8 (expansión AWS y reducción de ruido), ampliar catálogos y resolver las métricas/formatos pendientes. En otros entornos, instalar dependencias, aplicar las migraciones existentes, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera IaC, SAST, secretos, SBOM, desglose y tiempos.

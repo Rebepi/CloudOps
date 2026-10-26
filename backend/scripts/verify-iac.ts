@@ -15,4 +15,16 @@ for (const variant of ['unsafe', 'safe']) {
   assert.ok(result.state === 'completed' || result.state === 'partial');
   assert.ok(result.targetsAnalyzed > 0);
   if (variant === 'unsafe') for (const kind of ['terraform', 'cloudformation', 'kubernetes', 'dockerfile']) assert.ok(result.findings.some((finding) => finding.evidence.kind === kind), kind);
+  if (variant === 'unsafe') {
+    for (const id of ['AWS-0107', 'AWS-0026', 'AWS-0092', 'KSV-0017', 'DS-0002', 'CLOUDOPS-IAM-0001']) assert.ok(result.findings.some((finding) => finding.evidence.policyId === id), id);
+  } else assert.equal(result.findings.length, 0);
 }
+const docker = await scanIac([{ path: 'Dockerfile', kind: 'dockerfile', text: await readFile(new URL('../tests/fixtures/iac/safe/Dockerfile', import.meta.url), 'utf8') }], { enabled: true, mode: 'docker' });
+assert.equal(docker.state, 'completed');
+assert.equal(docker.findings.length, 0);
+console.log(JSON.stringify({ variant: 'dockerfile-supported-only', state: docker.state, checks: docker.checks }));
+const unsupported = await scanIac([{ path: 'compose.yaml', kind: 'compose', text: 'services: {}' }], { enabled: true });
+assert.equal(unsupported.state, 'not_supported');
+const ignored = await scanIac([{ path: 'Dockerfile', kind: 'dockerfile', text: 'FROM alpine:3.20.3\n# trivy:ignore:AVD-DS-0002\nUSER root' }], { enabled: true, mode: 'docker' });
+assert.equal(ignored.state, 'partial');
+console.log(JSON.stringify({ variant: 'source-ignore-not-clean', state: ignored.state, conditions: ignored.unresolved.length }));

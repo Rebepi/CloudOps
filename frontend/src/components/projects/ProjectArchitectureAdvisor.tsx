@@ -8,6 +8,7 @@ import { SecurityDimensions } from './SecurityDimensions';
 import { SupplyChainPanel } from './SupplyChainPanel';
 import { SastCoveragePanel } from './SastCoveragePanel';
 import { RepositorySecretsPanel } from './RepositorySecretsPanel';
+import { IacCoveragePanel } from './IacCoveragePanel';
 
 type EvidenceView = 'overview' | 'architecture' | 'coverage';
 type ArchitectureComponent = { id: string; name: string; category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration'; confidence: 'high' | 'medium'; evidence: string[] };
@@ -160,6 +161,7 @@ export function ProjectArchitectureAdvisor({ project, assessment, findings, view
     <SupplyChainPanel assessment={assessment!} />
     <SastCoveragePanel assessment={assessment!} />
     <RepositorySecretsPanel assessment={assessment!} />
+    <IacCoveragePanel assessment={assessment!} />
     <div className="mt-6 border-t border-line pt-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-ink">Dominios de seguridad observados</h3><span className="text-xs text-blue-400">{measured} de {coverage.length} medidos</span></div>
       <div className="mt-3 divide-y divide-line">{coverage.map((domain) => <div key={domain.id} className="flex items-start justify-between gap-4 py-3"><div><strong className="text-xs text-ink">{domain.label}</strong><p className="mt-1 text-[11px] text-muted">{domain.detail}</p></div><span className="shrink-0 text-[11px] text-blue-400">{statusLabels[domain.status]} · {domain.files} archivos</span></div>)}</div>
     </div>

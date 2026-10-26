@@ -166,3 +166,27 @@ test('una plantilla .env con placeholders no se marca como archivo con credencia
   assert.equal(production.summary.secrets.filesCandidate, 1);
   assert.ok(production.findings.some((finding) => finding.severity === 'CRITICAL'));
 });
+
+test('IaC integrado conserva ubicación, procedencia y una sola penalización corroborada', async (t) => {
+  const path = await archive(t, { 'infra/main.tf': 'resource "aws_security_group" "open" {\n cidr_blocks = ["0.0.0.0/0"]\n}' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false, iacScan: { enabled: true, run: async () => JSON.stringify({ Results: [{
+    Target: '/src/infra', Type: 'terraform', MisconfSummary: { Successes: 1, Failures: 1, Exceptions: 0 }, Misconfigurations: [{
+      ID: 'AVD-AWS-0107', Status: 'FAIL', Severity: 'HIGH', Title: 'Unrestricted ingress', CauseMetadata: { StartLine: 2, EndLine: 2,
+        Code: { Lines: [{ Filename: 'infra/main.tf', Content: 'configuration-value-not-persisted' }] } },
+    }],
+  }] }) } });
+  assert.equal(evaluation.summary.iac.state, 'completed');
+  const finding = evaluation.findings.find((finding) => finding.source === 'trivy-config')!;
+  assert.equal(finding.evidence.deployment, 'not-verified');
+  assert.equal(evaluation.findings.filter((finding) => finding.severity === 'HIGH').length, 1);
+  assert.equal((finding.evidence.observations as unknown[]).length, 2);
+  assert.equal(JSON.stringify(evaluation).includes('configuration-value-not-persisted'), false);
+  assert.ok(buildAnalyzerRuns({ assessmentType: 'code', ...evaluation }).some((run) => run.analyzerId === 'trivy:iac'));
+});
+
+test('Compose observado no se acredita como control Trivy config evaluado', async (t) => {
+  const path = await archive(t, { 'compose.yaml': 'services:\n  app:\n    image: alpine:latest\n    privileged: true' });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false, iacScan: { enabled: true } });
+  assert.equal(evaluation.summary.iac.state, 'not_supported');
+  assert.equal(evaluation.summary.iac.targetsAnalyzed, 0);
+});

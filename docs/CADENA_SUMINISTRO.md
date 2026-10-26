@@ -1,6 +1,6 @@
 # Cadena de suministro y SBOM
 
-Motor actual: `1.8.0`. Metodología de código/full: `2026.18`. La base SBOM se introdujo en `1.6.0`.
+Motor actual: `1.9.0`. Metodología de código/full: `2026.19`. La base SBOM se introdujo en `1.6.0`.
 
 ## Despliegue
 
@@ -76,7 +76,7 @@ Los límites y omisiones reducen cobertura o marcan el inventario como parcial. 
 
 ## Verificación y pendientes
 
-Se aprobaron 119 pruebas backend y 34 frontend, además de compilación y lint. Las pruebas incluyen ZIP reales de prueba, respuesta HTTP del SBOM, checksum, autenticación heredada, separación por proyecto, entradas inválidas, versiones múltiples y redacción de secretos.
+Se aprobaron 136 pruebas backend y 37 frontend, además de compilación y lint. Las pruebas incluyen ZIP reales de prueba, respuesta HTTP del SBOM, checksum, autenticación heredada, separación por proyecto, entradas inválidas, versiones múltiples, IaC y redacción de secretos.
 
 Además de las pruebas simuladas, se ejecutó Trivy 0.76.1 real mediante Docker sobre `alpine:3.20.3`: quince componentes y setenta y siete hallazgos. El resultado fue parcial por dos severidades desconocidas, conservando los avisos estimados. Se preparó la caché y se verificó la imagen del analizador por digest. En otros despliegues se requiere preparar/habilitar la modalidad elegida; no se afirma una instalación nativa Windows.
 

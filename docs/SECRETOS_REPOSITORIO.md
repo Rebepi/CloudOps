@@ -1,6 +1,6 @@
 # Secretos de repositorio con Gitleaks
 
-Motor CloudOps `1.8.0`; metodología código/full `2026.18`. AWS conserva `2026.14`.
+Motor CloudOps actual `1.9.0`; metodología código/full `2026.19`. AWS conserva `2026.14`. La base Gitleaks se introdujo en `1.8.0`.
 
 ## Alcance
 
@@ -88,7 +88,7 @@ No se respetan comentarios de supresión `gitleaks:allow` de un repositorio eval
 
 ## Verificación
 
-Suite completa: 119 pruebas backend y 34 frontend, compilación y lint aprobados. Las pruebas ordinarias no requieren Docker ni red.
+Suite completa actual: 136 pruebas backend y 37 frontend, compilación y lint aprobados. Las pruebas ordinarias no requieren Docker ni red.
 
 La ejecución real de Gitleaks en Docker utilizó cuatro archivos con material efímero generado en memoria: dos credenciales sintéticas de aplicación, una coincidencia genérica en fixture y una clave privada de prueba. Obtuvo cuatro detecciones: dos altas, una informativa contextual y una crítica de clave privada, sin pérdida por contexto. Un control negativo separado con placeholders y baja entropía produjo cero coincidencias Gitleaks. No se usaron credenciales de cuentas reales ni se publicaron los valores generados.
 

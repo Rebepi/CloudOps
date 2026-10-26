@@ -24,6 +24,7 @@ export const config = {
   gitleaksEnabled: (process.env.CLOUDOPS_GITLEAKS_ENABLED ?? '').trim().toLowerCase() === 'true',
   gitleaksMode: (process.env.CLOUDOPS_GITLEAKS_MODE ?? 'docker').trim() === 'native' ? 'native' as const : 'docker' as const,
   gitleaksExecutable: (process.env.CLOUDOPS_GITLEAKS_PATH ?? 'gitleaks').trim(),
+  iacEnabled: (process.env.CLOUDOPS_IAC_ENABLED ?? '').trim().toLowerCase() === 'true',
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL es obligatorio');

@@ -9,7 +9,7 @@ import { scanImages, type TrivyOptions } from './security/trivyImages.js';
 import { scanSast, mergeSastFindings, type SastOptions, type SastSource } from './security/sast.js';
 import { SAST_RULES, sourceContext, sourceLanguage } from './security/sastCatalog.js';
 import { scanRepositorySecrets, mergeSecretFindings, type SecretScanOptions, type SecretSource } from './security/repositorySecrets.js';
-import { detectIacKind, scanIac, type IacOptions, type IacSource } from './security/iac.js';
+import { detectIacKind, scanIac, mergeIacFindings, type IacOptions, type IacSource } from './security/iac.js';
 
 export type CodeSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
 export const BUILTIN_RULE_CATALOG_VERSION = '2026.10.regex1';
@@ -492,7 +492,8 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             const kind = detectIacKind(entry.fileName, text);
             if (kind && !iacSource) { iacSource = { path: entry.fileName, kind, skipReason: 'Trivy config deshabilitado.' }; iacSources.push(iacSource); }
             if (iacSource && options.iacScan?.enabled) {
-              if (iacFiles >= 1000 || buffer.length > 2 * 1024 * 1024 || iacBytes + buffer.length > 20 * 1024 * 1024) iacSource.skipReason = 'Límite IaC de archivos o bytes.';
+              if (!['terraform', 'cloudformation', 'kubernetes', 'dockerfile', 'iam-policy'].includes(iacSource.kind)) iacSource.skipReason = 'Tipo sin escáner en este perfil.';
+              else if (iacFiles >= 1000 || buffer.length > 2 * 1024 * 1024 || iacBytes + buffer.length > 20 * 1024 * 1024) iacSource.skipReason = 'Límite IaC de archivos o bytes.';
               else { iacSource.text = text; delete iacSource.skipReason; iacFiles++; iacBytes += buffer.length; }
             }
             if (secretSource && options.secretScan?.enabled) {
@@ -571,7 +572,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   if (sast.durationMs !== null) analyzerTimings['semgrep:sast'] = { durationMs: sast.durationMs, scope: 'elapsed-service' };
   const iacResult = await scanIac(archive.iacSources, options.iacScan);
   const { findings: iacFindings, ...iac } = iacResult;
-  archive.findings.push(...iacFindings);
+  archive.findings = mergeIacFindings(archive.findings, iacFindings, iac.conclusiveIamFiles);
   if (iac.durationMs !== null) analyzerTimings['trivy:iac'] = { durationMs: iac.durationMs, scope: 'elapsed-service' };
   const deduplicatedDependencies = [...new Map(archive.dependencies.map((item) => [`${item.ecosystem}:${item.name}:${item.version}`, item])).values()];
   let osvAvailable = false;
@@ -619,10 +620,11 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
   const trivy = await scanImages(archive.images, options.imageScan);
   archive.findings.push(...trivy.findings);
   if (trivy.durationMs !== null) analyzerTimings['trivy:images'] = { durationMs: trivy.durationMs, scope: 'elapsed-service' };
-  const withMetadata = archive.findings.map((item) => ({
+  const withMetadata: CodeFinding[] = archive.findings.map((item) => ({
     ...item,
-    evidence: item.source === 'cloudops' && BUILTIN_RULE_CATALOG.rules.some((rule) => item.externalId.startsWith(`${rule.id}:`))
-      ? { ...item.evidence, ruleId: item.externalId.split(':').slice(0, 2).join(':'), catalogVersion: BUILTIN_RULE_CATALOG_VERSION } : item.evidence,
+    evidence: { ...item.evidence, ...(item.category === 'iac' ? { deployment: 'not-verified' } : {}),
+      ...(item.source === 'cloudops' && BUILTIN_RULE_CATALOG.rules.some((rule) => item.externalId.startsWith(`${rule.id}:`))
+        ? { ruleId: item.externalId.split(':').slice(0, 2).join(':'), catalogVersion: BUILTIN_RULE_CATALOG_VERSION } : {}) },
     fingerprint: computeFingerprint(item),
     framework: item.framework ?? frameworkFor(item.source, item.category),
   }));

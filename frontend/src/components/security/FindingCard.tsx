@@ -51,6 +51,7 @@ const sourceLabel: Record<string, string> = {
   trivy: 'Trivy',
   semgrep: 'Semgrep SAST',
   gitleaks: 'Gitleaks',
+  'trivy-config': 'Trivy config',
 };
 
 export function FindingCard({
@@ -166,6 +167,7 @@ export function FindingCard({
                   {finding.framework}
                 </span>
               )}
+              {finding.category === 'iac' && <span className="rounded-md border border-amber-500/25 px-2 py-0.5 text-[10px] text-amber-400">Declaración IaC · despliegue no verificado</span>}
             </div>
 
             <h4 className="text-sm sm:text-base font-bold text-ink tracking-tight flex items-center gap-2">
@@ -205,6 +207,9 @@ export function FindingCard({
         )}
 
         <FindingObservations evidence={finding.evidence} />
+        {typeof finding.evidence.policyUrl === 'string' && /^https:\/\/(?:avd\.aquasec\.com|docs\.aws\.amazon\.com|trivy\.dev)\//.test(finding.evidence.policyUrl) && <a href={finding.evidence.policyUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-blue-400 underline">Consultar política relacionada</a>}
+        {Array.isArray(finding.evidence.frameworkReferences) && <div className="mt-2 flex flex-wrap gap-2">{finding.evidence.frameworkReferences.flatMap((reference, index) => reference && typeof reference === 'object' && typeof reference.framework === 'string'
+          ? [<span key={index} className="text-[10px] text-muted">Relacionado: {reference.framework}{typeof reference.control === 'string' ? ` ${reference.control}` : ''}; no acredita cumplimiento.</span>] : [])}</div>}
         {!finding.owner && typeof finding.evidence.ownerSuggested === 'string' && <p className="mt-2 text-[11px] text-muted">Responsable sugerido: {finding.evidence.ownerSuggested}. No asignado automáticamente.</p>}
         {finding.source === 'gitleaks' && <p className="mt-2 text-[11px] text-muted">Firma {finding.evidence.confidence === 'generic-entropy' ? 'genérica y entropía' : 'de proveedor/formato'}. La actividad de la credencial no se verifica.</p>}
         {typeof finding.evidence.advisoryUrl === 'string' && /^https:\/\/(?:osv\.dev|nvd\.nist\.gov|trivy\.dev)\//.test(finding.evidence.advisoryUrl) && <a href={finding.evidence.advisoryUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-blue-400 underline">Consultar aviso de vulnerabilidad</a>}

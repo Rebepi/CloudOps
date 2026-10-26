@@ -1,6 +1,6 @@
 # SAST y analizadores instalados
 
-Motor CloudOps actual `1.8.0`; metodología código/full `2026.18`. AWS conserva `2026.14`. La base SAST se introdujo en `1.7.0`.
+Motor CloudOps actual `1.9.0`; metodología código/full `2026.19`. AWS conserva `2026.14`. La base SAST se introdujo en `1.7.0`.
 
 ## Estado verificado
 
@@ -92,6 +92,6 @@ Semgrep CE proporciona análisis intraprocedimental basado en las reglas configu
 
 ## Verificación automatizada
 
-Compilación backend/frontend y lint aprobados. Suite actual: 119 pruebas backend y 34 frontend. Incluye rechazo de reglas/archivos desconocidos, descarte de fragmentos de código, staging plano, limpieza, contexto, cobertura parcial, límites, corroboración sin doble conteo, captura UTF-8, timeout de procesos propios y presentación de lenguajes no soportados.
+Compilación backend/frontend y lint aprobados. Suite actual: 136 pruebas backend y 37 frontend. Incluye rechazo de reglas/archivos desconocidos, descarte de fragmentos de código, staging, limpieza, contexto, cobertura parcial, corroboración, timeout y presentación de tipos no soportados. La verificación completa también incluye IaC; su guía es `INFRAESTRUCTURA_DECLARADA.md`.
 
 Las pruebas unitarias no requieren Docker ni red. Los scripts de preparación y verificación son comprobaciones operativas explícitas y sí usan Docker; Trivy requiere red para su base y la imagen remota. No se modificaron políticas IAM ni se habilitaron servicios AWS durante esta entrega.

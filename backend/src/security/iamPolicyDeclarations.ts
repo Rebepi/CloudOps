@@ -18,7 +18,7 @@ export function inspectIamDeclarations(sources: IacSource[]) {
     if (source.kind === 'terraform' && /\.tf$/.test(source.path) && /(?:resource|data)\s+"aws_iam_/.test(source.text ?? '')) {
       unresolved.push({ path: source.path, reason: 'La semántica IAM calculada en HCL no se acredita como un documento literal verificado.' });
     }
-    if (!/\.(?:json|yaml|yml)$/i.test(source.path) || source.kind !== 'iam-policy' && !/Statement|PolicyDocument|AWS::IAM::/.test(source.text ?? '')) continue;
+    if (!/\.(?:json|yaml|yml)$/i.test(source.path) || source.kind !== 'iam-policy' && !/AWS::IAM::/.test(source.text ?? '')) continue;
     const priorUnresolved = unresolved.length;
     let document: Record<string, unknown>;
     try {
