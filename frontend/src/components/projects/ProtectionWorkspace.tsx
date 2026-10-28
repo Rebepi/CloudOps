@@ -1,20 +1,30 @@
-import { useState } from 'react';
-import { ArrowRight, Fingerprint, Database, Code2, Network, Radar, CircleHelp, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { FivePillarsWorkspace } from './FivePillarsWorkspace';
 import type { EvaluacionSeguridad } from '../../types/cloud';
-import { securityAreas, controlNames } from '../../lib/securityPresentation';
 
-const icons = [Fingerprint, Database, Code2, Network, Radar];
-export function ProtectionWorkspace({ assessment, compact = false, onFinding, onCoverage, onArea, initialArea = 'identity' }: { assessment: EvaluacionSeguridad; compact?: boolean; onFinding: (id: string) => void; onCoverage: () => void; onArea?: (id: string) => void; initialArea?: string }) {
-  const [active, setActive] = useState(initialArea);
-  const areas = securityAreas(assessment);
-  const area = areas.find((item) => item.id === active) ?? areas[0];
-  return <section className="rounded-2xl border border-line bg-card p-4 sm:p-6" aria-label="Áreas de protección">
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><p className="text-[11px] font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400">Seguridad explicada</p><h2 className="mt-1 text-lg font-bold text-ink">¿Qué está protegido y qué falta comprobar?</h2></div><span className="text-xs text-muted">Selecciona un área para ver pruebas y límites</span></div>
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Elegir área de protección">{areas.map((item, index) => { const Icon = icons[index]; return <button key={item.id} aria-pressed={active === item.id} onClick={() => { setActive(item.id); if (compact) onArea?.(item.id); }} className={`min-w-0 rounded-xl border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-blue-500 ${active === item.id ? 'border-blue-500 bg-blue-500/5' : 'border-line hover:bg-canvas'}`}><Icon size={19} className="mb-3 text-blue-600 dark:text-blue-400" /><strong className="block text-sm text-ink">{item.label}</strong><span className={`mt-1 block text-xs ${item.critical || item.high || item.failed ? 'text-rose-600 dark:text-rose-400' : 'text-muted'}`}>{item.status}</span><span className="mt-2 block text-[11px] text-muted">{item.controls.length ? `${item.passed} sin fallo · ${item.failed} fallos · ${item.unverified} parciales o sin verificar` : 'Sin controles registrados'}</span></button>; })}</div>
-    {!compact && <div className="mt-5 border-t border-line pt-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="text-base font-bold text-ink">{area.question}</h3><p className="mt-1 text-sm text-muted">{area.action}</p></div><button onClick={onCoverage} className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400">Ver alcance de las pruebas <ArrowRight size={14} /></button></div>
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs"><span className="flex items-center gap-1 text-muted"><CheckCircle2 size={14} />{area.passed} controles sin fallo</span><span className="flex items-center gap-1 text-rose-600 dark:text-rose-400"><AlertTriangle size={14} />{area.failed} controles con fallo</span><span className="flex items-center gap-1 text-amber-700 dark:text-amber-400"><CircleHelp size={14} />{area.unverified} parciales o sin verificar</span></div>
-      <div className="mt-4 grid gap-5 lg:grid-cols-2"><div><h4 className="text-xs font-bold uppercase tracking-wide text-muted">Evidencia observada</h4>{area.controls.length ? <ul className="mt-2 divide-y divide-line">{area.controls.slice(0, compact ? 3 : undefined).map((control) => <li key={control.id} className="py-3"><div className="flex flex-wrap items-start justify-between gap-2 text-xs"><strong className="text-ink">{control.label}</strong><span className={control.state === 'fail' ? 'text-rose-600 dark:text-rose-400' : 'text-muted'}>{controlNames[control.state]}</span></div>{!compact && <p className="mt-1 text-xs leading-relaxed text-muted">{control.detail}</p>}</li>)}</ul> : <p className="mt-3 text-sm text-muted">Esta ejecución no conserva controles suficientes para explicar esta área. Se necesita una nueva evaluación compatible.</p>}</div><div><h4 className="text-xs font-bold uppercase tracking-wide text-muted">Qué revisar en esta área</h4>{area.findings.length ? <ul className="mt-2 divide-y divide-line">{area.findings.slice(0, compact ? 2 : 5).map((finding) => <li key={finding.id}><button onClick={() => onFinding(finding.id)} className="flex w-full items-start justify-between gap-3 py-3 text-left"><span><strong className="block text-sm text-ink">{finding.title}</strong><span className="mt-1 block text-xs leading-relaxed text-muted">{finding.recommendation}</span></span><ArrowRight size={15} className="mt-1 shrink-0 text-blue-500" /></button></li>)}</ul> : <p className="mt-3 text-sm leading-relaxed text-muted">No se registraron alertas puntuables en esta área. {area.unverified || !area.controls.length ? 'Hay comprobaciones pendientes; no se puede concluir que esté protegida.' : 'El resultado se limita a los controles y al momento evaluados.'}</p>}</div></div>
-      {!compact && <details className="mt-3 border-t border-line pt-3 text-xs"><summary className="cursor-pointer text-muted">Dimensiones originales y puntajes del motor</summary><div className="mt-2 space-y-2">{area.dimensions.map((dimension) => <p key={dimension.id} className="text-muted">{dimension.label}: {dimension.score ?? 'Sin puntaje concluyente'} · cobertura {dimension.coverage}%. No se promedian dimensiones ni se reemplazan valores sin medición por cero.</p>)}</div></details>}
-    </div>}
-  </section>;
+export interface ProtectionWorkspaceProps {
+  assessment: EvaluacionSeguridad;
+  compact?: boolean;
+  onFinding: (id: string) => void;
+  onCoverage: () => void;
+  onArea?: (id: string) => void;
+  initialArea?: string;
+}
+
+export function ProtectionWorkspace({
+  assessment,
+  compact = false,
+  onFinding,
+  onCoverage,
+  onArea: _onArea,
+  initialArea = 'identity',
+}: ProtectionWorkspaceProps) {
+  return (
+    <FivePillarsWorkspace
+      assessment={assessment}
+      initialArea={initialArea}
+      onFinding={onFinding}
+      onCoverage={onCoverage}
+      compact={compact}
+    />
+  );
 }

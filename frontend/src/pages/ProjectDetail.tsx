@@ -134,29 +134,301 @@ export default function ProjectDetail() {
   if (loading) return <p role="status" className="p-6 text-sm text-muted">Cargando la evidencia del proyecto…</p>;
   if (!project) return <div className="space-y-3"><p role="alert" className="text-sm text-rose-600">{error ?? 'Proyecto no encontrado'}</p><Link to="/projects" className="text-sm text-blue-600">Volver a proyectos</Link></div>;
   const tabs = [
-    { id: 'overview', label: 'Resumen', icon: LayoutDashboard }, { id: 'protection', label: 'Protección', icon: Fingerprint },
-    { id: 'architecture', label: 'Arquitectura', icon: Layers3 }, { id: 'findings', label: 'Hallazgos', icon: ShieldAlert },
-    { id: 'coverage', label: 'Medición', icon: ScanSearch }, { id: 'advisor', label: 'Asesor IA', icon: BrainCircuit },
-    { id: 'evolution', label: 'Evolución e informes', icon: History },
+    { id: 'overview', label: 'Resumen Ejecutivo', icon: LayoutDashboard },
+    { id: 'protection', label: '5 Pilares de Seguridad', icon: Fingerprint },
+    { id: 'findings', label: 'Hallazgos & Riesgos', icon: ShieldAlert },
+    { id: 'architecture', label: 'Arquitectura & Servicios', icon: Layers3 },
+    { id: 'advisor', label: 'Asesor IA & Remediación', icon: BrainCircuit },
+    { id: 'coverage', label: 'Medición & Cobertura', icon: ScanSearch },
+    { id: 'evolution', label: 'Evolución e Informes', icon: History },
   ] as const;
-  return <div className="space-y-5 pb-6">
-    <header className="rounded-2xl border border-line bg-card px-4 py-4 sm:px-6">
-      <Link to="/projects" className="inline-flex items-center gap-1 text-xs font-semibold text-muted hover:text-blue-500"><ArrowLeft size={14} />Portafolio de proyectos</Link>
-      <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted"><span>{project.environment}</span><span>·</span><span>{project.region}</span><span>·</span><span>{project.repoOwner && project.repoName ? `${project.repoOwner}/${project.repoName}` : 'Proyecto local'}</span></div><h1 className="mt-1 break-words text-xl font-black tracking-tight text-ink sm:text-2xl">{project.name}</h1></div><div className="flex shrink-0 gap-2"><button disabled={evaluationBusy || repositoryAssessmentActive} onClick={() => setAssessmentMenuOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">{evaluationBusy ? <LoaderCircle size={15} className="animate-spin" /> : <Play size={15} />}{evaluationBusy ? 'Evaluación en curso' : 'Nueva evaluación'}</button><button onClick={() => setReportOpen(true)} disabled={selected?.status !== 'completed'} className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2.5 text-xs font-bold text-ink disabled:opacity-40"><FileDown size={15} />Informe PDF</button></div></div>
-      {selected && <div className="mt-4 flex flex-col gap-2 border-t border-line pt-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted"><strong className="text-ink">{assessmentLabel(selected, project)}</strong> · {selected.completedAt ? new Date(selected.completedAt).toLocaleString('es-PE') : 'En preparación'}<span className="mt-1 block">Las conclusiones corresponden únicamente a esta ejecución.</span></p><label className="text-[11px] font-semibold text-muted">Cambiar evaluación<select aria-label="Cambiar evaluación" value={selected.id} onChange={(event) => { setTargetFinding(undefined); void loadAssessment(event.target.value); }} className="mt-1 block max-w-full rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-ink">{assessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{new Date(assessment.startedAt).toLocaleString('es-PE')} · {assessmentLabel(assessment, project)}</option>)}</select></label></div>}
-    </header>
-    {error && <p role="alert" className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-600 dark:text-rose-400">{error}</p>}
-    <nav aria-label="Secciones de evaluación" className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1.5 sm:grid-cols-4 xl:flex xl:flex-wrap">{tabs.map(({ id, label, icon: Icon }) => <button key={id} aria-current={workspaceTab === id ? 'page' : undefined} onClick={() => { setWorkspaceTab(id); if (id === 'architecture') setArchitectureView('system'); if (id === 'findings') setTargetFinding(undefined); }} className={`inline-flex items-center gap-2 rounded-xl px-3 py-3 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-blue-500 ${workspaceTab === id ? 'bg-blue-600 text-white' : 'text-muted hover:bg-canvas hover:text-ink'}`}><Icon size={15} />{label}</button>)}</nav>
-    {evaluationBusy ? <section role="status" aria-live="polite" className="rounded-2xl border border-line bg-card p-8 text-center"><LoaderCircle size={30} className="mx-auto animate-spin text-blue-500" /><h2 className="mt-4 text-xl font-bold text-ink">Estamos reuniendo la evidencia</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted">El análisis está en curso. Los controles, las tecnologías y los hallazgos aparecerán al terminar; aún no hay una conclusión nueva.</p><p className="mt-3 text-xs text-muted">Esta vista consulta el estado automáticamente.</p></section> : selected?.status === 'failed' ? <p role="alert" className="rounded-xl border border-line p-6 text-sm text-rose-600">No se completó la evaluación. {selected.errorMessage} Inicia otra desde Nueva evaluación.</p> : selected?.status === 'completed' ? <>
-      {workspaceTab === 'overview' && <SecuritySummary key={selected.id} assessment={selected} onFinding={onFinding} onCoverage={() => setWorkspaceTab('coverage')} onAdvisor={() => setWorkspaceTab('advisor')} onArchitecture={() => { setArchitectureView('framework'); setWorkspaceTab('architecture'); }} onArea={(id) => { setProtectionArea(id); setWorkspaceTab('protection'); }} />}
-      {workspaceTab === 'protection' && <ProtectionWorkspace key={`${selected.id}:${protectionArea}`} initialArea={protectionArea} assessment={selected} onFinding={onFinding} onCoverage={() => setWorkspaceTab('coverage')} />}
-      {workspaceTab === 'architecture' && <ArchitectureWorkspace key={`${selected.id}:${architectureView}`} assessment={selected} onFinding={onFinding} initialView={architectureView} />}
-      {workspaceTab === 'findings' && <FindingsWorkspace key={`${selected.id}:${targetFinding ?? 'list'}`} assessment={selected} projectId={projectId} initialFindingId={targetFinding} onUpdated={() => void loadAssessment(selected.id)} />}
-      {workspaceTab === 'coverage' && <CoverageWorkspace key={selected.id} assessment={selected} />}
-      {workspaceTab === 'advisor' && <section className="rounded-2xl border border-line bg-card p-4 sm:p-6"><p className="text-xs font-bold uppercase tracking-widest text-violet-600 dark:text-violet-400">De la evidencia a un plan</p><h2 className="mt-1 text-xl font-bold text-ink">Asesor de seguridad y arquitectura</h2><p className="mt-2 text-sm leading-relaxed text-muted">Prioridades, criterios para validar correcciones y decisiones de arquitectura basadas en lo observado. Cada propuesta requiere revisión antes de publicarse.</p><AdvisoryPanel key={selected.id} assessment={selected} onNavigateToFinding={onFinding} /></section>}
-      {workspaceTab === 'evolution' && <div className="space-y-4"><section className="rounded-2xl border border-line bg-card p-5"><h2 className="text-xl font-bold text-ink">¿Qué cambió entre evaluaciones?</h2><p className="mt-2 text-sm text-muted">Solo se comparan ejecuciones del mismo tipo, motor y metodología. El detalle completo se puede descargar en Asesor IA.</p><AssessmentOverview assessment={selected} history={assessments} mode="trend" /></section><AssessmentComparisonPanel comparison={comparison} onNavigateToFinding={onFinding} /></div>}
-    </> : <section className="rounded-2xl border border-line bg-card p-8 text-center"><h2 className="text-xl font-bold text-ink">Primero necesitamos evidencia</h2><p className="mt-2 text-sm text-muted">Inicia una evaluación del código, la cuenta AWS o ambas para conocer los riesgos de este proyecto.</p><button onClick={() => setAssessmentMenuOpen(true)} className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white">Elegir qué evaluar</button></section>}
-    {assessmentMenuOpen && <NewAssessmentModal onClose={() => setAssessmentMenuOpen(false)} hasRepo={Boolean(project.repoOwner && project.repoName)} awsReady={Boolean(awsConnection.data?.readyForAssessment)} awsReason={awsConnection.data?.recommendation} busy={evaluationBusy} onRun={(scope, archive) => { setAssessmentMenuOpen(false); setWorkspaceTab('overview'); if (scope === 'aws') void runAwsAssessment(); else if (archive) void runArchiveAssessment(scope, archive); else void runRepositoryAssessment(scope); }} />}
-    {reportOpen && selected && <SecurityReportModal abierto onCerrar={() => setReportOpen(false)} proyecto={project} evaluacion={selected} comparacion={comparison} />}
-  </div>;
+
+  const score = selected?.score;
+  const scoreBadgeColor =
+    score == null
+      ? 'bg-slate-500/10 text-muted border-slate-500/20'
+      : score >= 85
+      ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+      : score >= 60
+      ? 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+      : 'bg-rose-500/15 text-rose-500 border-rose-500/30';
+
+  return (
+    <div className="space-y-6 pb-8">
+      <header className="rounded-3xl border border-line bg-card p-5 sm:p-7 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <div className="min-w-0">
+            <Link
+              to="/projects"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-muted hover:text-blue-500 transition-colors"
+            >
+              <ArrowLeft size={14} />
+              <span>Portafolio de proyectos</span>
+            </Link>
+
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+              <span className="rounded-md bg-canvas px-2 py-0.5 text-ink">{project.environment}</span>
+              <span>·</span>
+              <span>{project.region}</span>
+              <span>·</span>
+              <span className="font-mono">
+                {project.repoOwner && project.repoName ? `${project.repoOwner}/${project.repoName}` : 'Proyecto local'}
+              </span>
+            </div>
+
+            <h1 className="mt-1.5 break-words text-2xl font-black tracking-tight text-ink sm:text-3xl">
+              {project.name}
+            </h1>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            {selected && (
+              <div className={`flex items-center gap-2.5 rounded-2xl border px-4 py-2.5 shadow-2xs ${scoreBadgeColor}`}>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold uppercase tracking-wider block opacity-80">
+                    Nivel de Seguridad
+                  </span>
+                  <strong className="text-lg font-black tabular-nums">
+                    {score != null ? `${score}%` : 'Sin medir'}
+                  </strong>
+                </div>
+                <div className="h-7 w-px bg-current opacity-20" />
+                <span className="text-xs font-bold">
+                  {score == null
+                    ? 'Evaluación pendiente'
+                    : score >= 85
+                    ? 'Óptimo'
+                    : score >= 60
+                    ? 'Moderado'
+                    : 'Crítico'}
+                </span>
+              </div>
+            )}
+
+            <button
+              disabled={evaluationBusy || repositoryAssessmentActive}
+              onClick={() => setAssessmentMenuOpen(true)}
+              className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+            >
+              {evaluationBusy ? <LoaderCircle size={15} className="animate-spin" /> : <Play size={15} />}
+              <span>{evaluationBusy ? 'Evaluación en curso' : 'Nueva evaluación'}</span>
+            </button>
+
+            <button
+              onClick={() => setReportOpen(true)}
+              disabled={selected?.status !== 'completed'}
+              className="inline-flex items-center gap-2 rounded-2xl border border-line bg-card px-4 py-3 text-xs font-bold text-ink hover:bg-canvas disabled:opacity-40 transition-all shadow-xs cursor-pointer"
+            >
+              <FileDown size={15} />
+              <span>Informe PDF</span>
+            </button>
+          </div>
+        </div>
+
+        {selected && (
+          <div className="mt-5 flex flex-col gap-3 border-t border-line/80 pt-4 sm:flex-row sm:items-center sm:justify-between text-xs">
+            <p className="text-muted">
+              <strong className="text-ink font-bold">{assessmentLabel(selected, project)}</strong> ·{' '}
+              {selected.completedAt ? new Date(selected.completedAt).toLocaleString('es-PE') : 'En preparación'}
+              <span className="mt-0.5 block text-[11px]">
+                Resultados obtenidos para este artefacto y configuración auditada.
+              </span>
+            </p>
+
+            <label className="text-[11px] font-semibold text-muted flex items-center gap-2">
+              Cambiar evaluación:
+              <select
+                aria-label="Cambiar evaluación"
+                value={selected.id}
+                onChange={(event) => {
+                  setTargetFinding(undefined);
+                  void loadAssessment(event.target.value);
+                }}
+                className="rounded-xl border border-line bg-canvas px-3 py-1.5 text-xs text-ink focus:border-blue-500 focus:outline-none cursor-pointer"
+              >
+                {assessments.map((assessment) => (
+                  <option key={assessment.id} value={assessment.id}>
+                    {new Date(assessment.startedAt).toLocaleString('es-PE')} · {assessmentLabel(assessment, project)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+      </header>
+
+      {error && (
+        <p role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-600 dark:text-rose-400">
+          {error}
+        </p>
+      )}
+
+      {/* Modern Navigation Ribbon */}
+      <nav
+        aria-label="Secciones de evaluación"
+        className="grid grid-cols-2 gap-1.5 rounded-2xl border border-line bg-card p-2 sm:grid-cols-4 xl:flex xl:flex-wrap shadow-xs"
+      >
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            aria-current={workspaceTab === id ? 'page' : undefined}
+            onClick={() => {
+              setWorkspaceTab(id);
+              if (id === 'architecture') setArchitectureView('system');
+              if (id === 'findings') setTargetFinding(undefined);
+            }}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
+              workspaceTab === id
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-muted hover:bg-canvas hover:text-ink'
+            }`}
+          >
+            <Icon size={16} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {evaluationBusy ? (
+        <section role="status" aria-live="polite" className="rounded-3xl border border-line bg-card p-12 text-center shadow-xs">
+          <LoaderCircle size={36} className="mx-auto animate-spin text-blue-500" />
+          <h2 className="mt-4 text-xl font-bold text-ink">Estamos reuniendo la evidencia técnica</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted">
+            El escaneo y análisis estático están en curso. Los 5 pilares, tecnologías y hallazgos aparecerán al
+            finalizar.
+          </p>
+          <p className="mt-3 text-xs text-muted">Esta vista actualiza el estado automáticamente.</p>
+        </section>
+      ) : selected?.status === 'failed' ? (
+        <p role="alert" className="rounded-2xl border border-line p-6 text-sm text-rose-600">
+          No se completó la evaluación. {selected.errorMessage} Inicia otra desde Nueva evaluación.
+        </p>
+      ) : selected?.status === 'completed' ? (
+        <>
+          {workspaceTab === 'overview' && (
+            <SecuritySummary
+              key={selected.id}
+              assessment={selected}
+              onFinding={onFinding}
+              onCoverage={() => setWorkspaceTab('coverage')}
+              onAdvisor={() => setWorkspaceTab('advisor')}
+              onArchitecture={() => {
+                setArchitectureView('system');
+                setWorkspaceTab('architecture');
+              }}
+              onArea={(id) => {
+                setProtectionArea(id);
+                setWorkspaceTab('protection');
+              }}
+            />
+          )}
+
+          {workspaceTab === 'protection' && (
+            <ProtectionWorkspace
+              key={`${selected.id}:${protectionArea}`}
+              initialArea={protectionArea}
+              assessment={selected}
+              onFinding={onFinding}
+              onCoverage={() => setWorkspaceTab('coverage')}
+            />
+          )}
+
+          {workspaceTab === 'architecture' && (
+            <ArchitectureWorkspace
+              key={`${selected.id}:${architectureView}`}
+              assessment={selected}
+              onFinding={onFinding}
+              initialView={architectureView}
+            />
+          )}
+
+          {workspaceTab === 'findings' && (
+            <FindingsWorkspace
+              key={`${selected.id}:${targetFinding ?? 'list'}`}
+              assessment={selected}
+              projectId={projectId}
+              initialFindingId={targetFinding}
+              onUpdated={() => void loadAssessment(selected.id)}
+            />
+          )}
+
+          {workspaceTab === 'coverage' && <CoverageWorkspace key={selected.id} assessment={selected} />}
+
+          {workspaceTab === 'advisor' && (
+            <section className="rounded-3xl border border-line bg-card p-6 sm:p-8 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-xs font-bold text-violet-500">
+                  Inteligencia Artificial Groq
+                </span>
+                <span className="text-xs text-muted">Copiloto de Arquitectura y Seguridad</span>
+              </div>
+              <h2 className="mt-2 text-2xl font-black text-ink">
+                Asesor de Seguridad & Plan de Remediación
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted max-w-3xl">
+                Prioridades calculadas, simulador de postura ("What-If"), decisiones arquitectónicas y criterios de
+                verificación para elevar el nivel de seguridad del sistema.
+              </p>
+              <AdvisoryPanel key={selected.id} assessment={selected} onNavigateToFinding={onFinding} />
+            </section>
+          )}
+
+          {workspaceTab === 'evolution' && (
+            <div className="space-y-5">
+              <section className="rounded-3xl border border-line bg-card p-6 shadow-xs">
+                <h2 className="text-xl font-bold text-ink">¿Qué cambió entre evaluaciones?</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Solo se comparan ejecuciones del mismo tipo, motor y metodología. El detalle completo se puede
+                  descargar en Asesor IA.
+                </p>
+                <AssessmentOverview assessment={selected} history={assessments} mode="trend" />
+              </section>
+              <AssessmentComparisonPanel comparison={comparison} onNavigateToFinding={onFinding} />
+            </div>
+          )}
+        </>
+      ) : (
+        <section className="rounded-3xl border border-line bg-card p-12 text-center shadow-xs">
+          <h2 className="text-xl font-bold text-ink">Primero necesitamos evidencia técnica</h2>
+          <p className="mt-2 text-sm text-muted max-w-md mx-auto">
+            Inicia una evaluación del código fuente, la cuenta AWS o ambas para conocer los riesgos de este proyecto
+            en los 5 pilares de seguridad.
+          </p>
+          <button
+            onClick={() => setAssessmentMenuOpen(true)}
+            className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-xs hover:bg-blue-700 cursor-pointer"
+          >
+            Elegir qué evaluar
+          </button>
+        </section>
+      )}
+
+      {assessmentMenuOpen && (
+        <NewAssessmentModal
+          onClose={() => setAssessmentMenuOpen(false)}
+          hasRepo={Boolean(project.repoOwner && project.repoName)}
+          awsReady={Boolean(awsConnection.data?.readyForAssessment)}
+          awsReason={awsConnection.data?.recommendation}
+          busy={evaluationBusy}
+          onRun={(scope, archive) => {
+            setAssessmentMenuOpen(false);
+            setWorkspaceTab('overview');
+            if (scope === 'aws') void runAwsAssessment();
+            else if (archive) void runArchiveAssessment(scope, archive);
+            else void runRepositoryAssessment(scope);
+          }}
+        />
+      )}
+
+      {reportOpen && selected && (
+        <SecurityReportModal
+          abierto
+          onCerrar={() => setReportOpen(false)}
+          proyecto={project}
+          evaluacion={selected}
+          comparacion={comparison}
+        />
+      )}
+    </div>
+  );
 }
