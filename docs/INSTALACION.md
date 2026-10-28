@@ -107,6 +107,7 @@ docker compose up -d postgres
 Set-Location backend
 npm ci
 npm run migrate
+node --import tsx scripts/prepare-security-tools.ts
 npm run dev
 ```
 
