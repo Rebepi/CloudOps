@@ -1,5 +1,7 @@
 # Línea base de seguridad (Fase 0)
 
+> Documento histórico. La validación de las fases 8 y 9 y del motor 1.10.0 se registra en [FASES_8_9.md](FASES_8_9.md) y [el artefacto JSON](baselines/phase89-2026-10-28.json). Las cifras siguientes no se recalculan ni se comparan directamente con otra metodología.
+
 Fecha de corte: 2026-10-22  
 Metodología observada: `2026.11`  
 Proyecto de prueba: `SalesIA Baseline` (`af6ba746-c2bc-470d-bd82-9a8568edafae`)

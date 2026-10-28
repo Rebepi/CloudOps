@@ -1,6 +1,6 @@
 # Infraestructura declarada: Trivy config e IAM literal
 
-Motor CloudOps `1.9.0`, metodología código/full `2026.19`. AWS conserva `2026.14`.
+Motor CloudOps `1.10.0`, metodología código/full `2026.19`. AWS conserva `2026.14`.
 
 ## Alcance implementado
 

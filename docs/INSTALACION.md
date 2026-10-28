@@ -10,7 +10,7 @@ La aplicación no utiliza la sesión abierta en la consola web de AWS y no guard
 ## 1. Requisitos
 
 - Git.
-- Node.js compatible con el proyecto y npm.
+- Node.js 24 y npm (validado con Node 24.14.1 y npm 11.11.0).
 - Docker Desktop con Docker Compose.
 - AWS CLI v2.
 - Acceso autorizado al repositorio de CloudOps.
@@ -119,6 +119,8 @@ npm run dev
 ```
 
 Abre `http://127.0.0.1:29000`.
+
+Aplica todas las migraciones disponibles, incluida `010_assessment_advice.cjs` para la revisión de IA. Para preparar/habilitar Semgrep, Trivy, Gitleaks e IaC y configurar Groq solo en el backend, sigue [FASES_8_9.md](FASES_8_9.md). Los analizadores deshabilitados o fallidos conservan ese estado y reducen la cobertura; no se convierten en controles aprobados.
 
 ## 6. Verificación
 

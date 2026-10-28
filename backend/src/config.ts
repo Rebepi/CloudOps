@@ -25,6 +25,8 @@ export const config = {
   gitleaksMode: (process.env.CLOUDOPS_GITLEAKS_MODE ?? 'docker').trim() === 'native' ? 'native' as const : 'docker' as const,
   gitleaksExecutable: (process.env.CLOUDOPS_GITLEAKS_PATH ?? 'gitleaks').trim(),
   iacEnabled: (process.env.CLOUDOPS_IAC_ENABLED ?? '').trim().toLowerCase() === 'true',
+  groqApiKey: (process.env.GROQ_API_KEY ?? '').trim(),
+  groqModel: (process.env.GROQ_MODEL ?? 'openai/gpt-oss-120b').trim(),
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL es obligatorio');

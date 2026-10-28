@@ -475,6 +475,7 @@ async function s3SecurityPosture(region: string) {
 async function networkSecurityPosture(region: string) {
   const response = await ec2(region).send(new DescribeSecurityGroupsCommand({}));
   return {
+    truncated: Boolean(response.NextToken),
     securityGroups: (response.SecurityGroups ?? []).map((group) => ({
       id: group.GroupId,
       name: group.GroupName,

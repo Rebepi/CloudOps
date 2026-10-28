@@ -1,6 +1,6 @@
 # Cadena de suministro y SBOM
 
-Motor actual: `1.9.0`. Metodología de código/full: `2026.19`. La base SBOM se introdujo en `1.6.0`.
+Motor actual: `1.10.0`. Metodología de código/full: `2026.19`. La base SBOM se introdujo en `1.6.0`.
 
 ## Despliegue
 

@@ -206,6 +206,7 @@ export function FindingCard({
           </div>
         )}
 
+        {finding.priority && <p className="mb-3 text-xs text-muted">Prioridad de remediación: {finding.priority.rank} · {finding.priority.reasons.join(' · ')}. La severidad original se conserva.</p>}
         <FindingObservations evidence={finding.evidence} />
         {typeof finding.evidence.policyUrl === 'string' && /^https:\/\/(?:avd\.aquasec\.com|docs\.aws\.amazon\.com|trivy\.dev)\//.test(finding.evidence.policyUrl) && <a href={finding.evidence.policyUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-blue-400 underline">Consultar política relacionada</a>}
         {Array.isArray(finding.evidence.frameworkReferences) && <div className="mt-2 flex flex-wrap gap-2">{finding.evidence.frameworkReferences.flatMap((reference, index) => reference && typeof reference === 'object' && typeof reference.framework === 'string'

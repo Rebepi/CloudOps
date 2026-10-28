@@ -1,0 +1,1907 @@
+{
+  "generatedAt": "2026-10-28T06:41:13.246Z",
+  "workflows": {
+    "zip": {
+      "id": "b1a77f50-4551-4c08-8849-2fcc6387c3fc",
+      "status": "completed",
+      "score": 0,
+      "coverage": 75,
+      "engine": "1.10.0",
+      "methodology": "2026.19",
+      "artifactSha256": "bbb8dcd16598dca8304786d699a919aa2551682df96caff2e5284b10ae5ce91d",
+      "counts": {
+        "CRITICAL": 7,
+        "HIGH": 112,
+        "MEDIUM": 129,
+        "LOW": 90,
+        "INFORMATIONAL": 977
+      },
+      "actionable": 338,
+      "informational": 977,
+      "dimensions": [
+        {
+          "id": "identity",
+          "score": 100,
+          "coverage": 100,
+          "state": "measured"
+        },
+        {
+          "id": "data",
+          "score": 80,
+          "coverage": 67,
+          "state": "partial"
+        },
+        {
+          "id": "application",
+          "score": null,
+          "coverage": 75,
+          "state": "partial"
+        },
+        {
+          "id": "dependencies",
+          "score": null,
+          "coverage": 50,
+          "state": "partial"
+        },
+        {
+          "id": "configuration",
+          "score": 74,
+          "coverage": 83,
+          "state": "partial"
+        },
+        {
+          "id": "detection",
+          "score": null,
+          "coverage": 0,
+          "state": "not_measured"
+        }
+      ],
+      "analyzers": [
+        {
+          "analyzerId": "builtin:configuration",
+          "state": "completed",
+          "itemsAnalyzed": 4,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "Archivos de configuración inspeccionados para exposición y valores inseguros.",
+            "status": "measured"
+          }
+        },
+        {
+          "analyzerId": "builtin:containers",
+          "state": "completed",
+          "itemsAnalyzed": 3,
+          "findingsCount": 0,
+          "durationMs": 41,
+          "detail": {
+            "detail": "Dockerfiles y/o archivos Compose inspeccionados.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:dependencies",
+          "state": "partial",
+          "itemsAnalyzed": 5,
+          "findingsCount": 0,
+          "durationMs": 20,
+          "detail": {
+            "detail": "339 de 339 versiones consultadas en OSV. Consulta completa. 1 observación(es) de inventario o versiones no resueltas.",
+            "status": "partial",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:iac",
+          "state": "skipped",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "No se detectó Terraform o CloudFormation; este dominio no fue medido.",
+            "status": "not-detected"
+          }
+        },
+        {
+          "analyzerId": "builtin:secrets",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 15,
+          "durationMs": 57,
+          "detail": {
+            "detail": "Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:source-code",
+          "state": "completed",
+          "itemsAnalyzed": 1795,
+          "findingsCount": 22,
+          "durationMs": 123,
+          "detail": {
+            "detail": "Reglas internas aplicadas a 1795 archivo(s). El análisis de flujo Semgrep se informa por separado.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "cyclonedx:sbom",
+          "state": "partial",
+          "itemsAnalyzed": 669,
+          "findingsCount": 0,
+          "durationMs": 52,
+          "detail": {
+            "format": "CycloneDX",
+            "sha256": "dcbafece9eb3373dcc2f334d7dfa6a0254cf8eeaccea5aa5bba3f5723c130ec1",
+            "specVersion": "1.6",
+            "timingScope": "elapsed-service",
+            "inventoryComplete": false
+          }
+        },
+        {
+          "analyzerId": "gitleaks:repository",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 19,
+          "durationMs": 10895,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "gitleaks",
+              "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+              "version": "8.30.1"
+            },
+            "limits": [],
+            "reason": null,
+            "catalog": {
+              "sha256": "c71dd799449983092351ffd053010f430aebb5dd6e7c3c247a48dbbb7585123b",
+              "version": "2026.10.1",
+              "extendsDefault": true
+            },
+            "skipped": [],
+            "detections": 19,
+            "durationMs": 10895,
+            "itemsBasis": "staged-files-in-successful-dir-scan",
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "filesAnalyzed": 1813,
+            "filesCandidate": 1813,
+            "invalidResults": 0
+          }
+        },
+        {
+          "analyzerId": "osv",
+          "state": "completed",
+          "itemsAnalyzed": 339,
+          "findingsCount": 56,
+          "durationMs": 5301,
+          "detail": {
+            "limits": [],
+            "metrics": {
+              "retries": 0,
+              "requests": 60,
+              "durationMs": 5301
+            },
+            "timingScope": "elapsed-service",
+            "dependencyCount": 339,
+            "vulnerabilitiesChecked": 339
+          }
+        },
+        {
+          "analyzerId": "semgrep:sast",
+          "state": "completed",
+          "itemsAnalyzed": 1518,
+          "findingsCount": 0,
+          "durationMs": 50910,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "semgrep",
+              "image": "semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af"
+            },
+            "reason": null,
+            "catalog": {
+              "sha256": "7c5cca8b928eaf4c7c6c3a6c5b0d23b346036f45382b74e1c7adb6a450404e34",
+              "version": "2026.10.1",
+              "ruleCount": 12
+            },
+            "skipped": [],
+            "languages": [
+              {
+                "rules": [
+                  "cloudops.python.sql-taint",
+                  "cloudops.python.command-taint",
+                  "cloudops.python.ssrf-taint",
+                  "cloudops.python.deserialize-taint",
+                  "cloudops.python.jwt-signature"
+                ],
+                "state": "completed",
+                "language": "python",
+                "filesAnalyzed": 846,
+                "filesExcluded": 216,
+                "filesCandidate": 1062
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "typescript",
+                "filesAnalyzed": 670,
+                "filesExcluded": 61,
+                "filesCandidate": 731
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "javascript",
+                "filesAnalyzed": 2,
+                "filesExcluded": 0,
+                "filesCandidate": 2
+              }
+            ],
+            "durationMs": 50910,
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "engineVersion": "1.182.0",
+            "filesAnalyzed": 1518,
+            "filesEligible": 1518,
+            "filesExcluded": 277,
+            "filesCandidate": 1518,
+            "unsupportedFiles": 0,
+            "identityApplicable": true
+          }
+        },
+        {
+          "analyzerId": "trivy:iac",
+          "state": "partial",
+          "itemsAnalyzed": 2,
+          "findingsCount": 3,
+          "durationMs": 1915,
+          "detail": {
+            "kinds": [
+              "dockerfile",
+              "compose"
+            ],
+            "state": "partial",
+            "checks": {
+              "failures": 3,
+              "successes": 51,
+              "exceptions": 0
+            },
+            "engine": {
+              "mode": "docker",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "vendorInvoked": true
+            },
+            "reason": "Existen omisiones, referencias no resueltas, excepciones o resultados incompletos; revisar cobertura.",
+            "catalog": {
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "network": "disabled-in-docker",
+              "version": "2026.10.iac1",
+              "scanners": [
+                "terraform",
+                "cloudformation",
+                "kubernetes",
+                "dockerfile"
+              ],
+              "deployment": "not-verified",
+              "rulesSource": "embedded-in-pinned-image-plus-owned-literal-iam-policy",
+              "engineVersion": "0.76.1",
+              "customPolicies": [
+                "CLOUDOPS-IAM-0001"
+              ],
+              "includeDeprecatedChecks": false
+            },
+            "skipped": [
+              {
+                "path": "Rebepi-SalesIA-d6ffdaa/compose.yaml",
+                "reason": "Tipo sin escáner en este perfil."
+              }
+            ],
+            "durationMs": 1915,
+            "itemsBasis": "reported-policy-targets-and-literal-iam-documents",
+            "unresolved": [],
+            "timingScope": "elapsed-service",
+            "filesSkipped": 1,
+            "reportedKinds": [
+              "dockerfile"
+            ],
+            "filesCandidate": 3,
+            "filesSubmitted": 2,
+            "targetsAnalyzed": 2,
+            "conclusiveIamFiles": [],
+            "evaluatedDimensions": [
+              "configuration"
+            ]
+          }
+        },
+        {
+          "analyzerId": "trivy:images",
+          "state": "partial",
+          "itemsAnalyzed": 3,
+          "findingsCount": 1200,
+          "durationMs": 50160,
+          "detail": {
+            "tool": {
+              "mode": "docker",
+              "name": "Trivy",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
+            },
+            "reason": null,
+            "results": [
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "python:3.12-slim"
+              },
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "postgres:18-alpine"
+              },
+              {
+                "state": "completed",
+                "detail": "Imagen analizada.",
+                "reference": "node:22-alpine"
+              },
+              {
+                "state": "skipped",
+                "detail": "Límite de tres imágenes o presupuesto de 120 s alcanzado.",
+                "reference": "nginx:1.27-alpine"
+              }
+            ],
+            "timingScope": "elapsed-service"
+          }
+        }
+      ],
+      "comparable": false,
+      "dimensionComparison": [
+        {
+          "id": "identity",
+          "label": "Identidad y autorización",
+          "currentScore": 100,
+          "previousScore": null,
+          "currentCoverage": 100,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "measured",
+          "previousState": null
+        },
+        {
+          "id": "data",
+          "label": "Protección de datos y secretos",
+          "currentScore": 80,
+          "previousScore": null,
+          "currentCoverage": 67,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "application",
+          "label": "Seguridad del código",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 75,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "dependencies",
+          "label": "Dependencias y cadena de suministro",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 50,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "configuration",
+          "label": "Configuración e infraestructura",
+          "currentScore": 74,
+          "previousScore": null,
+          "currentCoverage": 83,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "detection",
+          "label": "Registro y detección",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 0,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "not_measured",
+          "previousState": null
+        }
+      ],
+      "technicalReport": "verified; no unapproved AI",
+      "sbom": {
+        "format": "CycloneDX",
+        "components": 669
+      }
+    },
+    "repository": {
+      "id": "d98ce278-e57d-4778-803d-e81a96557588",
+      "status": "completed",
+      "score": 0,
+      "coverage": 75,
+      "engine": "1.10.0",
+      "methodology": "2026.19",
+      "artifactSha256": "bbb8dcd16598dca8304786d699a919aa2551682df96caff2e5284b10ae5ce91d",
+      "counts": {
+        "CRITICAL": 7,
+        "HIGH": 112,
+        "MEDIUM": 129,
+        "LOW": 90,
+        "INFORMATIONAL": 977
+      },
+      "actionable": 338,
+      "informational": 977,
+      "dimensions": [
+        {
+          "id": "identity",
+          "score": 100,
+          "coverage": 100,
+          "state": "measured"
+        },
+        {
+          "id": "data",
+          "score": 80,
+          "coverage": 67,
+          "state": "partial"
+        },
+        {
+          "id": "application",
+          "score": null,
+          "coverage": 75,
+          "state": "partial"
+        },
+        {
+          "id": "dependencies",
+          "score": null,
+          "coverage": 50,
+          "state": "partial"
+        },
+        {
+          "id": "configuration",
+          "score": 74,
+          "coverage": 83,
+          "state": "partial"
+        },
+        {
+          "id": "detection",
+          "score": null,
+          "coverage": 0,
+          "state": "not_measured"
+        }
+      ],
+      "analyzers": [
+        {
+          "analyzerId": "builtin:configuration",
+          "state": "completed",
+          "itemsAnalyzed": 4,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "Archivos de configuración inspeccionados para exposición y valores inseguros.",
+            "status": "measured"
+          }
+        },
+        {
+          "analyzerId": "builtin:containers",
+          "state": "completed",
+          "itemsAnalyzed": 3,
+          "findingsCount": 0,
+          "durationMs": 39,
+          "detail": {
+            "detail": "Dockerfiles y/o archivos Compose inspeccionados.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:dependencies",
+          "state": "partial",
+          "itemsAnalyzed": 5,
+          "findingsCount": 0,
+          "durationMs": 14,
+          "detail": {
+            "detail": "339 de 339 versiones consultadas en OSV. Consulta completa. 1 observación(es) de inventario o versiones no resueltas.",
+            "status": "partial",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:iac",
+          "state": "skipped",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "No se detectó Terraform o CloudFormation; este dominio no fue medido.",
+            "status": "not-detected"
+          }
+        },
+        {
+          "analyzerId": "builtin:secrets",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 15,
+          "durationMs": 49,
+          "detail": {
+            "detail": "Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:source-code",
+          "state": "completed",
+          "itemsAnalyzed": 1795,
+          "findingsCount": 22,
+          "durationMs": 106,
+          "detail": {
+            "detail": "Reglas internas aplicadas a 1795 archivo(s). El análisis de flujo Semgrep se informa por separado.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "cyclonedx:sbom",
+          "state": "partial",
+          "itemsAnalyzed": 669,
+          "findingsCount": 0,
+          "durationMs": 17,
+          "detail": {
+            "format": "CycloneDX",
+            "sha256": "907152828ca4213b049de2917ad0118b05859dbd97fa57a547b42837606a6408",
+            "specVersion": "1.6",
+            "timingScope": "elapsed-service",
+            "inventoryComplete": false
+          }
+        },
+        {
+          "analyzerId": "gitleaks:repository",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 19,
+          "durationMs": 11592,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "gitleaks",
+              "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+              "version": "8.30.1"
+            },
+            "limits": [],
+            "reason": null,
+            "catalog": {
+              "sha256": "c71dd799449983092351ffd053010f430aebb5dd6e7c3c247a48dbbb7585123b",
+              "version": "2026.10.1",
+              "extendsDefault": true
+            },
+            "skipped": [],
+            "detections": 19,
+            "durationMs": 11592,
+            "itemsBasis": "staged-files-in-successful-dir-scan",
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "filesAnalyzed": 1813,
+            "filesCandidate": 1813,
+            "invalidResults": 0
+          }
+        },
+        {
+          "analyzerId": "osv",
+          "state": "completed",
+          "itemsAnalyzed": 339,
+          "findingsCount": 56,
+          "durationMs": 6375,
+          "detail": {
+            "limits": [],
+            "metrics": {
+              "retries": 0,
+              "requests": 60,
+              "durationMs": 6375
+            },
+            "timingScope": "elapsed-service",
+            "dependencyCount": 339,
+            "vulnerabilitiesChecked": 339
+          }
+        },
+        {
+          "analyzerId": "semgrep:sast",
+          "state": "completed",
+          "itemsAnalyzed": 1518,
+          "findingsCount": 0,
+          "durationMs": 65223,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "semgrep",
+              "image": "semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af"
+            },
+            "reason": null,
+            "catalog": {
+              "sha256": "7c5cca8b928eaf4c7c6c3a6c5b0d23b346036f45382b74e1c7adb6a450404e34",
+              "version": "2026.10.1",
+              "ruleCount": 12
+            },
+            "skipped": [],
+            "languages": [
+              {
+                "rules": [
+                  "cloudops.python.sql-taint",
+                  "cloudops.python.command-taint",
+                  "cloudops.python.ssrf-taint",
+                  "cloudops.python.deserialize-taint",
+                  "cloudops.python.jwt-signature"
+                ],
+                "state": "completed",
+                "language": "python",
+                "filesAnalyzed": 846,
+                "filesExcluded": 216,
+                "filesCandidate": 1062
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "typescript",
+                "filesAnalyzed": 670,
+                "filesExcluded": 61,
+                "filesCandidate": 731
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "javascript",
+                "filesAnalyzed": 2,
+                "filesExcluded": 0,
+                "filesCandidate": 2
+              }
+            ],
+            "durationMs": 65223,
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "engineVersion": "1.182.0",
+            "filesAnalyzed": 1518,
+            "filesEligible": 1518,
+            "filesExcluded": 277,
+            "filesCandidate": 1518,
+            "unsupportedFiles": 0,
+            "identityApplicable": true
+          }
+        },
+        {
+          "analyzerId": "trivy:iac",
+          "state": "partial",
+          "itemsAnalyzed": 2,
+          "findingsCount": 3,
+          "durationMs": 2500,
+          "detail": {
+            "kinds": [
+              "dockerfile",
+              "compose"
+            ],
+            "state": "partial",
+            "checks": {
+              "failures": 3,
+              "successes": 51,
+              "exceptions": 0
+            },
+            "engine": {
+              "mode": "docker",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "vendorInvoked": true
+            },
+            "reason": "Existen omisiones, referencias no resueltas, excepciones o resultados incompletos; revisar cobertura.",
+            "catalog": {
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "network": "disabled-in-docker",
+              "version": "2026.10.iac1",
+              "scanners": [
+                "terraform",
+                "cloudformation",
+                "kubernetes",
+                "dockerfile"
+              ],
+              "deployment": "not-verified",
+              "rulesSource": "embedded-in-pinned-image-plus-owned-literal-iam-policy",
+              "engineVersion": "0.76.1",
+              "customPolicies": [
+                "CLOUDOPS-IAM-0001"
+              ],
+              "includeDeprecatedChecks": false
+            },
+            "skipped": [
+              {
+                "path": "Rebepi-SalesIA-d6ffdaa/compose.yaml",
+                "reason": "Tipo sin escáner en este perfil."
+              }
+            ],
+            "durationMs": 2500,
+            "itemsBasis": "reported-policy-targets-and-literal-iam-documents",
+            "unresolved": [],
+            "timingScope": "elapsed-service",
+            "filesSkipped": 1,
+            "reportedKinds": [
+              "dockerfile"
+            ],
+            "filesCandidate": 3,
+            "filesSubmitted": 2,
+            "targetsAnalyzed": 2,
+            "conclusiveIamFiles": [],
+            "evaluatedDimensions": [
+              "configuration"
+            ]
+          }
+        },
+        {
+          "analyzerId": "trivy:images",
+          "state": "partial",
+          "itemsAnalyzed": 3,
+          "findingsCount": 1200,
+          "durationMs": 6660,
+          "detail": {
+            "tool": {
+              "mode": "docker",
+              "name": "Trivy",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
+            },
+            "reason": null,
+            "results": [
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "python:3.12-slim"
+              },
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "postgres:18-alpine"
+              },
+              {
+                "state": "completed",
+                "detail": "Imagen analizada.",
+                "reference": "node:22-alpine"
+              },
+              {
+                "state": "skipped",
+                "detail": "Límite de tres imágenes o presupuesto de 120 s alcanzado.",
+                "reference": "nginx:1.27-alpine"
+              }
+            ],
+            "timingScope": "elapsed-service"
+          }
+        }
+      ],
+      "comparable": true,
+      "dimensionComparison": [
+        {
+          "id": "identity",
+          "label": "Identidad y autorización",
+          "currentScore": 100,
+          "previousScore": 100,
+          "currentCoverage": 100,
+          "previousCoverage": 100,
+          "scoreDelta": 0,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "measured",
+          "previousState": "measured"
+        },
+        {
+          "id": "data",
+          "label": "Protección de datos y secretos",
+          "currentScore": 80,
+          "previousScore": 80,
+          "currentCoverage": 67,
+          "previousCoverage": 67,
+          "scoreDelta": 0,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "partial",
+          "previousState": "partial"
+        },
+        {
+          "id": "application",
+          "label": "Seguridad del código",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 75,
+          "previousCoverage": 75,
+          "scoreDelta": null,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "partial",
+          "previousState": "partial"
+        },
+        {
+          "id": "dependencies",
+          "label": "Dependencias y cadena de suministro",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 50,
+          "previousCoverage": 50,
+          "scoreDelta": null,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "partial",
+          "previousState": "partial"
+        },
+        {
+          "id": "configuration",
+          "label": "Configuración e infraestructura",
+          "currentScore": 74,
+          "previousScore": 74,
+          "currentCoverage": 83,
+          "previousCoverage": 83,
+          "scoreDelta": 0,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "partial",
+          "previousState": "partial"
+        },
+        {
+          "id": "detection",
+          "label": "Registro y detección",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 0,
+          "previousCoverage": 0,
+          "scoreDelta": null,
+          "coverageDelta": 0,
+          "comparable": true,
+          "currentState": "not_measured",
+          "previousState": "not_measured"
+        }
+      ],
+      "technicalReport": "verified; no unapproved AI",
+      "sbom": {
+        "format": "CycloneDX",
+        "components": 669
+      }
+    },
+    "aws": {
+      "id": "9720aeeb-fdf7-40fa-a58a-c9f5b2dec9f8",
+      "status": "completed",
+      "score": 18,
+      "coverage": 82,
+      "engine": "1.10.0",
+      "methodology": "2026.14",
+      "artifactSha256": null,
+      "counts": {
+        "CRITICAL": 3,
+        "HIGH": 9,
+        "MEDIUM": 33,
+        "LOW": 7,
+        "INFORMATIONAL": 363
+      },
+      "actionable": 52,
+      "informational": 363,
+      "dimensions": [
+        {
+          "id": "identity",
+          "score": 0,
+          "coverage": 100,
+          "state": "measured"
+        },
+        {
+          "id": "data",
+          "score": null,
+          "coverage": 50,
+          "state": "partial"
+        },
+        {
+          "id": "application",
+          "score": null,
+          "coverage": 0,
+          "state": "not_measured"
+        },
+        {
+          "id": "dependencies",
+          "score": null,
+          "coverage": 0,
+          "state": "not_measured"
+        },
+        {
+          "id": "configuration",
+          "score": 0,
+          "coverage": 75,
+          "state": "partial"
+        },
+        {
+          "id": "detection",
+          "score": 0,
+          "coverage": 100,
+          "state": "measured"
+        }
+      ],
+      "analyzers": [
+        {
+          "analyzerId": "aws:cloudtrail",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 1,
+          "durationMs": 770,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "cumulative-request"
+          }
+        },
+        {
+          "analyzerId": "aws:config",
+          "state": "partial",
+          "itemsAnalyzed": 3,
+          "findingsCount": 0,
+          "durationMs": 1613,
+          "detail": {
+            "rules": 0,
+            "disabled": false,
+            "available": true,
+            "truncated": true,
+            "timingScope": "elapsed-service",
+            "resourceResults": 0
+          }
+        },
+        {
+          "analyzerId": "aws:ec2-network",
+          "state": "completed",
+          "itemsAnalyzed": 1,
+          "findingsCount": 0,
+          "durationMs": 951,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:iam",
+          "state": "completed",
+          "itemsAnalyzed": 2,
+          "findingsCount": 2,
+          "durationMs": 8148,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "cumulative-request"
+          }
+        },
+        {
+          "analyzerId": "aws:inspector",
+          "state": "skipped",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "disabled": true,
+            "available": true,
+            "truncated": true
+          }
+        },
+        {
+          "analyzerId": "aws:rds",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": 694,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:s3",
+          "state": "partial",
+          "itemsAnalyzed": 2,
+          "findingsCount": 0,
+          "durationMs": 1487,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": true,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:security-hub",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 413,
+          "durationMs": 6697,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        }
+      ],
+      "awsServiceCoverage": [
+        {
+          "unit": "identidades",
+          "scope": "global",
+          "state": "measured",
+          "reason": null,
+          "region": null,
+          "service": "iam",
+          "observed": 11
+        },
+        {
+          "unit": "trails",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "cloudtrail",
+          "observed": 0
+        },
+        {
+          "unit": "buckets",
+          "scope": "global",
+          "state": "partial",
+          "reason": null,
+          "region": null,
+          "service": "s3",
+          "observed": 2
+        },
+        {
+          "unit": "security groups",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "ec2",
+          "observed": 1
+        },
+        {
+          "unit": "instancias",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "rds",
+          "observed": 0
+        },
+        {
+          "unit": "hallazgos de postura",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "security-hub",
+          "observed": 413
+        },
+        {
+          "unit": "reglas",
+          "scope": "regional",
+          "state": "partial",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "config",
+          "observed": 0
+        },
+        {
+          "unit": "recursos cubiertos",
+          "scope": "regional",
+          "state": "not_measured",
+          "reason": "Servicio deshabilitado.",
+          "region": "us-east-1",
+          "service": "inspector",
+          "observed": 0
+        }
+      ],
+      "comparable": false,
+      "dimensionComparison": [
+        {
+          "id": "identity",
+          "label": "Identidad y autorización",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 100,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "measured",
+          "previousState": null
+        },
+        {
+          "id": "data",
+          "label": "Protección de datos y secretos",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 50,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "application",
+          "label": "Seguridad del código",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 0,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "not_measured",
+          "previousState": null
+        },
+        {
+          "id": "dependencies",
+          "label": "Dependencias y cadena de suministro",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 0,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "not_measured",
+          "previousState": null
+        },
+        {
+          "id": "configuration",
+          "label": "Configuración e infraestructura",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 75,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "detection",
+          "label": "Registro y detección",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 100,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "measured",
+          "previousState": null
+        }
+      ],
+      "technicalReport": "verified; no unapproved AI",
+      "sbom": null
+    },
+    "full": {
+      "id": "42575eec-6aa2-4df0-9b3a-da99a5ec28d3",
+      "status": "completed",
+      "score": 5,
+      "coverage": 79,
+      "engine": "1.10.0",
+      "methodology": "2026.19",
+      "artifactSha256": "bbb8dcd16598dca8304786d699a919aa2551682df96caff2e5284b10ae5ce91d",
+      "counts": {
+        "CRITICAL": 10,
+        "HIGH": 121,
+        "MEDIUM": 162,
+        "LOW": 97,
+        "INFORMATIONAL": 1340
+      },
+      "actionable": 390,
+      "informational": 1340,
+      "dimensions": [
+        {
+          "id": "identity",
+          "score": 0,
+          "coverage": 100,
+          "state": "measured"
+        },
+        {
+          "id": "data",
+          "score": 0,
+          "coverage": 63,
+          "state": "partial"
+        },
+        {
+          "id": "application",
+          "score": null,
+          "coverage": 75,
+          "state": "partial"
+        },
+        {
+          "id": "dependencies",
+          "score": null,
+          "coverage": 33,
+          "state": "partial"
+        },
+        {
+          "id": "configuration",
+          "score": 0,
+          "coverage": 80,
+          "state": "partial"
+        },
+        {
+          "id": "detection",
+          "score": 0,
+          "coverage": 100,
+          "state": "measured"
+        }
+      ],
+      "analyzers": [
+        {
+          "analyzerId": "aws:cloudtrail",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 1,
+          "durationMs": 658,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "cumulative-request"
+          }
+        },
+        {
+          "analyzerId": "aws:config",
+          "state": "partial",
+          "itemsAnalyzed": 3,
+          "findingsCount": 0,
+          "durationMs": 1615,
+          "detail": {
+            "rules": 0,
+            "disabled": false,
+            "available": true,
+            "truncated": true,
+            "timingScope": "elapsed-service",
+            "resourceResults": 0
+          }
+        },
+        {
+          "analyzerId": "aws:ec2-network",
+          "state": "completed",
+          "itemsAnalyzed": 1,
+          "findingsCount": 0,
+          "durationMs": 684,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:iam",
+          "state": "completed",
+          "itemsAnalyzed": 2,
+          "findingsCount": 2,
+          "durationMs": 3736,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "cumulative-request"
+          }
+        },
+        {
+          "analyzerId": "aws:inspector",
+          "state": "skipped",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "disabled": true,
+            "available": true,
+            "truncated": true
+          }
+        },
+        {
+          "analyzerId": "aws:rds",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": 707,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:s3",
+          "state": "partial",
+          "itemsAnalyzed": 2,
+          "findingsCount": 0,
+          "durationMs": 1150,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": true,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "aws:security-hub",
+          "state": "completed",
+          "itemsAnalyzed": 0,
+          "findingsCount": 413,
+          "durationMs": 6662,
+          "detail": {
+            "disabled": false,
+            "available": true,
+            "truncated": false,
+            "timingScope": "elapsed-service"
+          }
+        },
+        {
+          "analyzerId": "builtin:configuration",
+          "state": "completed",
+          "itemsAnalyzed": 4,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "Archivos de configuración inspeccionados para exposición y valores inseguros.",
+            "status": "measured"
+          }
+        },
+        {
+          "analyzerId": "builtin:containers",
+          "state": "completed",
+          "itemsAnalyzed": 3,
+          "findingsCount": 0,
+          "durationMs": 42,
+          "detail": {
+            "detail": "Dockerfiles y/o archivos Compose inspeccionados.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:dependencies",
+          "state": "partial",
+          "itemsAnalyzed": 5,
+          "findingsCount": 0,
+          "durationMs": 21,
+          "detail": {
+            "detail": "339 de 339 versiones consultadas en OSV. Consulta completa. 1 observación(es) de inventario o versiones no resueltas.",
+            "status": "partial",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:iac",
+          "state": "skipped",
+          "itemsAnalyzed": 0,
+          "findingsCount": 0,
+          "durationMs": null,
+          "detail": {
+            "detail": "No se detectó Terraform o CloudFormation; este dominio no fue medido.",
+            "status": "not-detected"
+          }
+        },
+        {
+          "analyzerId": "builtin:secrets",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 15,
+          "durationMs": 57,
+          "detail": {
+            "detail": "Archivos de texto inspeccionados mediante firmas de credenciales y archivos sensibles.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "builtin:source-code",
+          "state": "completed",
+          "itemsAnalyzed": 1795,
+          "findingsCount": 22,
+          "durationMs": 119,
+          "detail": {
+            "detail": "Reglas internas aplicadas a 1795 archivo(s). El análisis de flujo Semgrep se informa por separado.",
+            "status": "measured",
+            "timingScope": "cumulative-rule"
+          }
+        },
+        {
+          "analyzerId": "cyclonedx:sbom",
+          "state": "partial",
+          "itemsAnalyzed": 669,
+          "findingsCount": 0,
+          "durationMs": 77,
+          "detail": {
+            "format": "CycloneDX",
+            "sha256": "f669ebb5eaeec2f5432fbe2a9a510a9a3d0a5efeb0b9afd5bdf812a88dc0415d",
+            "specVersion": "1.6",
+            "timingScope": "elapsed-service",
+            "inventoryComplete": false
+          }
+        },
+        {
+          "analyzerId": "gitleaks:repository",
+          "state": "completed",
+          "itemsAnalyzed": 1813,
+          "findingsCount": 19,
+          "durationMs": 10921,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "gitleaks",
+              "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+              "version": "8.30.1"
+            },
+            "limits": [],
+            "reason": null,
+            "catalog": {
+              "sha256": "c71dd799449983092351ffd053010f430aebb5dd6e7c3c247a48dbbb7585123b",
+              "version": "2026.10.1",
+              "extendsDefault": true
+            },
+            "skipped": [],
+            "detections": 19,
+            "durationMs": 10921,
+            "itemsBasis": "staged-files-in-successful-dir-scan",
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "filesAnalyzed": 1813,
+            "filesCandidate": 1813,
+            "invalidResults": 0
+          }
+        },
+        {
+          "analyzerId": "osv",
+          "state": "completed",
+          "itemsAnalyzed": 339,
+          "findingsCount": 56,
+          "durationMs": 6135,
+          "detail": {
+            "limits": [],
+            "metrics": {
+              "retries": 0,
+              "requests": 60,
+              "durationMs": 6135
+            },
+            "timingScope": "elapsed-service",
+            "dependencyCount": 339,
+            "vulnerabilitiesChecked": 339
+          }
+        },
+        {
+          "analyzerId": "semgrep:sast",
+          "state": "completed",
+          "itemsAnalyzed": 1518,
+          "findingsCount": 0,
+          "durationMs": 65880,
+          "detail": {
+            "state": "completed",
+            "engine": {
+              "mode": "docker",
+              "name": "semgrep",
+              "image": "semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af"
+            },
+            "reason": null,
+            "catalog": {
+              "sha256": "7c5cca8b928eaf4c7c6c3a6c5b0d23b346036f45382b74e1c7adb6a450404e34",
+              "version": "2026.10.1",
+              "ruleCount": 12
+            },
+            "skipped": [],
+            "languages": [
+              {
+                "rules": [
+                  "cloudops.python.sql-taint",
+                  "cloudops.python.command-taint",
+                  "cloudops.python.ssrf-taint",
+                  "cloudops.python.deserialize-taint",
+                  "cloudops.python.jwt-signature"
+                ],
+                "state": "completed",
+                "language": "python",
+                "filesAnalyzed": 846,
+                "filesExcluded": 216,
+                "filesCandidate": 1062
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "typescript",
+                "filesAnalyzed": 670,
+                "filesExcluded": 61,
+                "filesCandidate": 731
+              },
+              {
+                "rules": [
+                  "cloudops.javascript.sql-taint",
+                  "cloudops.javascript.command-taint",
+                  "cloudops.javascript.xss-taint",
+                  "cloudops.javascript.ssrf-taint"
+                ],
+                "state": "completed",
+                "language": "javascript",
+                "filesAnalyzed": 2,
+                "filesExcluded": 0,
+                "filesCandidate": 2
+              }
+            ],
+            "durationMs": 65880,
+            "timingScope": "elapsed-service",
+            "filesSkipped": 0,
+            "engineVersion": "1.182.0",
+            "filesAnalyzed": 1518,
+            "filesEligible": 1518,
+            "filesExcluded": 277,
+            "filesCandidate": 1518,
+            "unsupportedFiles": 0,
+            "identityApplicable": true
+          }
+        },
+        {
+          "analyzerId": "trivy:iac",
+          "state": "partial",
+          "itemsAnalyzed": 2,
+          "findingsCount": 3,
+          "durationMs": 3104,
+          "detail": {
+            "kinds": [
+              "dockerfile",
+              "compose"
+            ],
+            "state": "partial",
+            "checks": {
+              "failures": 3,
+              "successes": 51,
+              "exceptions": 0
+            },
+            "engine": {
+              "mode": "docker",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "vendorInvoked": true
+            },
+            "reason": "Existen omisiones, referencias no resueltas, excepciones o resultados incompletos; revisar cobertura.",
+            "catalog": {
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+              "network": "disabled-in-docker",
+              "version": "2026.10.iac1",
+              "scanners": [
+                "terraform",
+                "cloudformation",
+                "kubernetes",
+                "dockerfile"
+              ],
+              "deployment": "not-verified",
+              "rulesSource": "embedded-in-pinned-image-plus-owned-literal-iam-policy",
+              "engineVersion": "0.76.1",
+              "customPolicies": [
+                "CLOUDOPS-IAM-0001"
+              ],
+              "includeDeprecatedChecks": false
+            },
+            "skipped": [
+              {
+                "path": "Rebepi-SalesIA-d6ffdaa/compose.yaml",
+                "reason": "Tipo sin escáner en este perfil."
+              }
+            ],
+            "durationMs": 3104,
+            "itemsBasis": "reported-policy-targets-and-literal-iam-documents",
+            "unresolved": [],
+            "timingScope": "elapsed-service",
+            "filesSkipped": 1,
+            "reportedKinds": [
+              "dockerfile"
+            ],
+            "filesCandidate": 3,
+            "filesSubmitted": 2,
+            "targetsAnalyzed": 2,
+            "conclusiveIamFiles": [],
+            "evaluatedDimensions": [
+              "configuration"
+            ]
+          }
+        },
+        {
+          "analyzerId": "trivy:images",
+          "state": "partial",
+          "itemsAnalyzed": 3,
+          "findingsCount": 1200,
+          "durationMs": 10560,
+          "detail": {
+            "tool": {
+              "mode": "docker",
+              "name": "Trivy",
+              "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
+            },
+            "reason": null,
+            "results": [
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "python:3.12-slim"
+              },
+              {
+                "state": "partial",
+                "detail": "Metadatos incompletos: 0 identidades de paquete, 1 severidades y 0 identificadores de aviso; resultados vacíos: false.",
+                "reference": "postgres:18-alpine"
+              },
+              {
+                "state": "completed",
+                "detail": "Imagen analizada.",
+                "reference": "node:22-alpine"
+              },
+              {
+                "state": "skipped",
+                "detail": "Límite de tres imágenes o presupuesto de 120 s alcanzado.",
+                "reference": "nginx:1.27-alpine"
+              }
+            ],
+            "timingScope": "elapsed-service"
+          }
+        }
+      ],
+      "awsServiceCoverage": [
+        {
+          "unit": "identidades",
+          "scope": "global",
+          "state": "measured",
+          "reason": null,
+          "region": null,
+          "service": "iam",
+          "observed": 11
+        },
+        {
+          "unit": "trails",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "cloudtrail",
+          "observed": 0
+        },
+        {
+          "unit": "buckets",
+          "scope": "global",
+          "state": "partial",
+          "reason": null,
+          "region": null,
+          "service": "s3",
+          "observed": 2
+        },
+        {
+          "unit": "security groups",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "ec2",
+          "observed": 1
+        },
+        {
+          "unit": "instancias",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "rds",
+          "observed": 0
+        },
+        {
+          "unit": "hallazgos de postura",
+          "scope": "regional",
+          "state": "measured",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "security-hub",
+          "observed": 413
+        },
+        {
+          "unit": "reglas",
+          "scope": "regional",
+          "state": "partial",
+          "reason": null,
+          "region": "us-east-1",
+          "service": "config",
+          "observed": 0
+        },
+        {
+          "unit": "recursos cubiertos",
+          "scope": "regional",
+          "state": "not_measured",
+          "reason": "Servicio deshabilitado.",
+          "region": "us-east-1",
+          "service": "inspector",
+          "observed": 0
+        }
+      ],
+      "comparable": false,
+      "dimensionComparison": [
+        {
+          "id": "identity",
+          "label": "Identidad y autorización",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 100,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "measured",
+          "previousState": null
+        },
+        {
+          "id": "data",
+          "label": "Protección de datos y secretos",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 63,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "application",
+          "label": "Seguridad del código",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 75,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "dependencies",
+          "label": "Dependencias y cadena de suministro",
+          "currentScore": null,
+          "previousScore": null,
+          "currentCoverage": 33,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "configuration",
+          "label": "Configuración e infraestructura",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 80,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "partial",
+          "previousState": null
+        },
+        {
+          "id": "detection",
+          "label": "Registro y detección",
+          "currentScore": 0,
+          "previousScore": null,
+          "currentCoverage": 100,
+          "previousCoverage": null,
+          "scoreDelta": null,
+          "coverageDelta": null,
+          "comparable": false,
+          "currentState": "measured",
+          "previousState": null
+        }
+      ],
+      "technicalReport": "verified; no unapproved AI",
+      "sbom": {
+        "format": "CycloneDX",
+        "components": 669
+      }
+    }
+  },
+  "checks": {
+    "groq": {
+      "assessmentId": "42575eec-6aa2-4df0-9b3a-da99a5ec28d3",
+      "state": "draft",
+      "model": "openai/gpt-oss-20b",
+      "priorities": 1,
+      "draftExcludedFromExport": true,
+      "anonymousExportStatus": 401,
+      "securityResultsUnchanged": true
+    },
+    "groqInitialAttempt": {
+      "error": "HTTP 502: Groq respondió HTTP 404. Revisa credenciales, modelo o cuota del proveedor."
+    },
+    "identicalSource": {
+      "sameArtifactSha256": true,
+      "sameFindingFingerprints": true,
+      "sameDimensionResults": true
+    },
+    "ui": {
+      "javascriptErrors": 0,
+      "reportA4Pages": 3,
+      "overflowingPages": 0,
+      "unapprovedAdvicePublished": false,
+      "reviewRequiresNote": true,
+      "resourceSearch": true
+    },
+    "awsLimitations": {
+      "s3InspectionErrors": 1,
+      "configTruncated": true,
+      "configMetadataError": null,
+      "configDetailErrors": [],
+      "inspectorStatus": "DISABLED"
+    }
+  },
+  "source": {
+    "repository": "Rebepi/SalesIA",
+    "commit": "d6ffdaa79755b331417db18b6c16890e552ad6b2",
+    "bytes": 5342314,
+    "sha256": "bbb8dcd16598dca8304786d699a919aa2551682df96caff2e5284b10ae5ce91d"
+  },
+  "projectId": "ea92e874-6bd0-4ad6-949d-4530152fcccf"
+}

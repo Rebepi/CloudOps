@@ -177,13 +177,13 @@ export function SecurityAnalyticsWidget({
             <PieChart size={16} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-ink">Estadísticas en Tiempo Real</h3>
-            <p className="text-[11px] text-muted">Vulnerabilidades por servicio y severidad</p>
+            <h3 className="text-sm font-bold text-ink">Distribución de hallazgos</h3>
+            <p className="text-[11px] text-muted">Resultado guardado por servicio y severidad</p>
           </div>
         </div>
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          En vivo
+          Evaluación
         </span>
       </div>
 
@@ -256,7 +256,7 @@ export function SecurityAnalyticsWidget({
       <div className="space-y-2.5 pt-2 border-t border-line">
         <div className="flex items-center justify-between text-xs">
           <span className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
-            <Shield size={12} className="text-blue-500" /> Cobertura por Servicio Core
+            <Shield size={12} className="text-blue-500" /> Hallazgos por servicio AWS
           </span>
           <span className="text-[10px] text-muted">4 servicios del módulo</span>
         </div>

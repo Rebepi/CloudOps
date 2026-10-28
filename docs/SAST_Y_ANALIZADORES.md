@@ -1,6 +1,6 @@
 # SAST y analizadores instalados
 
-Motor CloudOps actual `1.9.0`; metodología código/full `2026.19`. AWS conserva `2026.14`. La base SAST se introdujo en `1.7.0`.
+Motor CloudOps actual `1.10.0`; metodología código/full `2026.19`. AWS conserva `2026.14`. La base SAST se introdujo en `1.7.0`.
 
 ## Estado verificado
 

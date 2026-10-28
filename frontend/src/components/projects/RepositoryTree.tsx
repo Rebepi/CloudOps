@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileCode2, Folder, FolderOpen, Search } from 'lucide-react';
-import type { RepositoryEntry } from '../../types/cloud';
+import type { HallazgoSeguridad, RepositoryEntry } from '../../types/cloud';
 
 type TreeNode = {
   path: string;
@@ -37,9 +37,10 @@ const statusLabels: Record<RepositoryEntry['analysisStatus'], string> = {
 };
 const generatedPath = /(?:^|\/)(?:__pycache__|node_modules|\.git|\.venv|venv|dist|build|\.next)(?:\/|$)|\.pyc$/i;
 
-function Branch({ node, depth, expanded, toggle, searching }: {
-  node: TreeNode; depth: number; expanded: Set<string>; toggle: (path: string) => void; searching: boolean;
+function Branch({ node, depth, expanded, toggle, searching, risks, onFinding }: {
+  node: TreeNode; depth: number; expanded: Set<string>; toggle: (path: string) => void; searching: boolean; risks: Map<string, string[]>; onFinding?: (id: string) => void;
 }) {
+  const riskIds = risks.get(node.path) ?? [];
   const open = searching || expanded.has(node.path);
   const children = [...node.children.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
   const Icon = node.directory ? open ? FolderOpen : Folder : FileCode2;
@@ -48,16 +49,30 @@ function Branch({ node, depth, expanded, toggle, searching }: {
       {node.directory ? <button type="button" aria-expanded={open} aria-label={`${open ? 'Contraer' : 'Expandir'} ${node.name}`} onClick={() => toggle(node.path)} className="flex min-w-0 items-center gap-2 text-left text-ink cursor-pointer">
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<Icon size={15} className="text-blue-400" /><span className="font-mono font-semibold">{node.name}</span>
       </button> : <><span className="w-[13px]" /><Icon size={14} className="text-muted" /><span className="font-mono text-ink" title={node.path}>{node.name}</span></>}
+      {riskIds.length > 0 && <button type="button" onClick={() => onFinding?.(riskIds[0])} className="rounded-md bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400" title="Abrir un hallazgo de esta ruta">{riskIds.length} alertas</button>}
       {node.directory ? <span className="text-[10px] text-muted">{node.fileCount} archivos</span> : <>
         <span className={`text-[10px] ${node.entry?.analysisStatus === 'analyzed' ? 'text-emerald-400' : 'text-muted'}`}>{node.entry ? statusLabels[node.entry.analysisStatus] : ''}</span>
         <span className="text-[10px] text-muted">{((node.entry?.sizeBytes ?? 0) / 1024).toLocaleString('es-PE', { maximumFractionDigits: 1 })} KB</span>
       </>}
     </div>
-    {node.directory && open && <ul>{children.map((child) => <Branch key={child.path} node={child} depth={depth + 1} expanded={expanded} toggle={toggle} searching={searching} />)}</ul>}
+    {node.directory && open && <ul>{children.map((child) => <Branch key={child.path} node={child} depth={depth + 1} expanded={expanded} toggle={toggle} searching={searching} risks={risks} onFinding={onFinding} />)}</ul>}
   </li>;
 }
 
-export function RepositoryTree({ entries, complete }: { entries: RepositoryEntry[]; complete: boolean }) {
+export function RepositoryTree({ entries, complete, findings = [], onFinding }: { entries: RepositoryEntry[]; complete: boolean; findings?: HallazgoSeguridad[]; onFinding?: (id: string) => void }) {
+  const risks = useMemo(() => {
+    const result = new Map<string, string[]>();
+    for (const finding of findings) {
+      if (!finding.resource || finding.severity === 'INFORMATIONAL' || finding.evidence.scoreExcluded === true) continue;
+      const parts = finding.resource.replace(/\\/g, '/').split('/');
+      for (let index = 1; index <= parts.length; index++) {
+        const path = parts.slice(0, index).join('/');
+        const ids = result.get(path) ?? []; ids.push(finding.id); result.set(path, ids);
+      }
+    }
+    return result;
+  }, [findings]);
+  const [onlyRisk, setOnlyRisk] = useState(false);
   const [query, setQuery] = useState('');
   const [showGenerated, setShowGenerated] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => {
@@ -65,7 +80,7 @@ export function RepositoryTree({ entries, complete }: { entries: RepositoryEntry
     return top.size === 1 ? top : new Set();
   });
   const term = query.trim().toLowerCase();
-  const visible = useMemo(() => entries.filter((entry) => (showGenerated || !generatedPath.test(entry.path)) && (!term || entry.path.toLowerCase().includes(term))), [entries, showGenerated, term]);
+  const visible = useMemo(() => entries.filter((entry) => (!onlyRisk || risks.has(entry.path)) && (showGenerated || !generatedPath.test(entry.path)) && (!term || entry.path.toLowerCase().includes(term))), [entries, showGenerated, term, onlyRisk, risks]);
   const tree = useMemo(() => buildTree(visible), [visible]);
   const roots = [...tree.children.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
   const toggle = (path: string) => setExpanded((previous) => {
@@ -76,9 +91,10 @@ export function RepositoryTree({ entries, complete }: { entries: RepositoryEntry
   return <section className="mt-5 rounded-2xl border border-line bg-canvas/40 p-4">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-ink">Estructura de carpetas y módulos</h3><p className="mt-1 text-[11px] text-muted">Expande una carpeta para recorrer sus submódulos y archivos del artefacto evaluado.</p></div><span className="text-[11px] text-muted">{visible.filter((entry) => entry.kind === 'file').length} archivos visibles</span></div>
     <div className="mt-4 flex flex-wrap items-center gap-3"><label className="relative min-w-48 flex-1"><Search size={14} className="absolute left-3 top-2.5 text-muted" /><input aria-label="Buscar carpeta o archivo" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar módulo, carpeta o archivo…" className="w-full rounded-xl border border-line bg-card py-2 pl-9 pr-3 text-xs text-ink" /></label><label className="flex items-center gap-2 text-[11px] text-muted"><input type="checkbox" checked={showGenerated} onChange={(event) => setShowGenerated(event.target.checked)} />Mostrar generados y dependencias instaladas</label><button type="button" onClick={() => { setQuery(''); setExpanded(new Set()); }} className="text-xs font-semibold text-blue-400 cursor-pointer">Contraer todo</button></div>
+    <label className="mt-3 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={onlyRisk} onChange={(event) => setOnlyRisk(event.target.checked)} />Solo rutas con alertas puntuables</label>
     {!complete && <p className="mt-3 text-[11px] text-amber-400">Inventario parcial de esta evaluación.</p>}
     <div className="mt-4 max-h-[560px] overflow-auto rounded-xl border border-line bg-card p-2">
-      {roots.length ? <ul aria-label="Carpetas y archivos del proyecto">{roots.map((node) => <Branch key={node.path} node={node} depth={0} expanded={expanded} toggle={toggle} searching={Boolean(term)} />)}</ul> : <p className="p-4 text-xs text-muted">No hay archivos que coincidan con la búsqueda.</p>}
+      {roots.length ? <ul aria-label="Carpetas y archivos del proyecto">{roots.map((node) => <Branch key={node.path} node={node} depth={0} expanded={expanded} toggle={toggle} searching={Boolean(term) || onlyRisk} risks={risks} onFinding={onFinding} />)}</ul> : <p className="p-4 text-xs text-muted">No hay archivos que coincidan con la búsqueda.</p>}
     </div>
     <p className="mt-3 text-[10px] text-muted">“Analizado” indica que se leyó el archivo durante esta ejecución. Los formatos no compatibles y los archivos omitidos conservan su estado visible.</p>
   </section>;

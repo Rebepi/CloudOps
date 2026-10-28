@@ -29,6 +29,18 @@ const secureSnapshot: AwsSecuritySnapshot = {
   rdsError: null,
 };
 
+test('inventario distingue medición parcial, global, regional y servicio sin cobertura', () => {
+  const result = evaluateAwsSecurity({ ...secureSnapshot, region: 'us-east-1', network: { ...secureSnapshot.network!, truncated: true }, s3: null, s3Error: 'AccessDenied', inspector: { coverage: [], findings: [], truncated: false, accountStatus: 'DISABLED' } });
+  const services = result.summary.awsServiceCoverage;
+  assert.equal(services.length, 8);
+  assert.equal(services.find((service) => service.service === 'iam')?.scope, 'global');
+  assert.equal(services.find((service) => service.service === 'ec2')?.state, 'partial');
+  assert.equal(services.find((service) => service.service === 'ec2')?.region, 'us-east-1');
+  assert.equal(services.find((service) => service.service === 's3')?.observed, null);
+  assert.equal(services.find((service) => service.service === 's3')?.state, 'not_measured');
+  assert.equal(services.find((service) => service.service === 'inspector')?.state, 'not_measured');
+});
+
 test('returns full coverage and a clean score when observed controls pass', () => {
   const result = evaluateAwsSecurity(secureSnapshot);
   assert.equal(result.score, 100);

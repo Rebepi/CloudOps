@@ -1,4 +1,4 @@
-import type { ComparacionEvaluacion, EvaluacionSeguridad, HallazgoSeguridad, Proyecto } from '../../types/cloud';
+import type { AssessmentAdvice, ComparacionEvaluacion, EvaluacionSeguridad, HallazgoSeguridad, Proyecto } from '../../types/cloud';
 import type { CSSProperties } from 'react';
 import { Logo } from '../ui/Logo';
 import { detectAwsService } from '../security/findingServiceHelper';
@@ -19,14 +19,15 @@ const lifecycleLabel: Record<string, string> = {
   open: 'Abierto', in_progress: 'En tratamiento', resolved: 'Corregido', false_positive: 'Falso positivo', risk_accepted: 'Riesgo aceptado',
 };
 
-export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
-  proyecto: Proyecto; evaluacion: EvaluacionSeguridad; comparacion: ComparacionEvaluacion | null;
+export function SecurityReportDocument({ proyecto, evaluacion, comparacion, advice }: {
+  proyecto: Proyecto; evaluacion: EvaluacionSeguridad; comparacion: ComparacionEvaluacion | null; advice?: AssessmentAdvice | null;
 }) {
   const fecha = new Date().toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' });
   const findings = evaluacion.findings ?? [];
   const accepted = findings.filter((f) => f.status === 'risk_accepted');
   const falsePositives = findings.filter((f) => f.status === 'false_positive');
-  const prioritised = [...findings].sort((a, b) => severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity));
+  const prioritised = [...findings].filter((finding) => finding.severity !== 'INFORMATIONAL' && finding.category !== 'coverage' && finding.evidence?.scoreExcluded !== true)
+    .sort((a, b) => (b.priority?.rank ?? 0) - (a.priority?.rank ?? 0) || severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity));
   const counts = evaluacion.summary?.counts ?? {};
   const titulo = 'text-xs font-bold text-slate-900 uppercase tracking-wide border-b border-slate-200 pb-1 mb-2';
   const seccion = 'mb-5 print-avoid-break';
@@ -39,7 +40,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
           <Logo size={36} animado={false} conPing={false} />
           <div>
             <p className="text-lg font-black tracking-tight text-slate-900">Cloud<span className="text-blue-600">Ops</span></p>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Informe de Evaluación de Seguridad AWS</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Informe ejecutivo · {assessmentLabel(evaluacion, proyecto)}</p>
           </div>
         </div>
         <div className="text-right">
@@ -58,6 +59,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
         Cobertura observada: <strong>{evaluacion.coverage}%</strong> con confianza <strong>{evaluacion.confidence}</strong>. Metodología: {evaluacion.summary?.methodology ?? 'Controles CloudOps, CIS AWS Foundations Benchmark, AWS FSBP'}.
         Este informe es una evaluación técnica priorizada de postura de seguridad; no constituye una certificación formal ni sustituye un pentest manual.
       </p>
+      <p className="mt-1 text-[10px] text-slate-500">Motor: {evaluacion.engineVersion ?? 'Histórico sin versión'} · Metodología: {evaluacion.methodologyVersion ?? 'No registrada'}. {findings.filter((finding) => finding.severity === 'INFORMATIONAL').length} informativos conservados en el reporte técnico, fuera de la tabla ejecutiva.</p>
     </section>
 
     <section className={seccion}>
@@ -72,8 +74,8 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
           <strong className="text-lg text-slate-900">{evaluacion.coverage}%</strong>
         </div>
         <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
-          <span className="block text-[10px] font-semibold text-slate-500 uppercase">Total hallazgos</span>
-          <strong className="text-lg text-slate-900">{findings.length}</strong>
+          <span className="block text-[10px] font-semibold text-slate-500 uppercase">Hallazgos no informativos</span>
+          <strong className="text-lg text-slate-900">{findings.filter((finding) => finding.severity !== 'INFORMATIONAL').length}</strong>
         </div>
         <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-2.5">
           <span className="block text-[10px] font-semibold text-rose-700 uppercase">Críticos + Altos</span>
@@ -84,18 +86,21 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
 
     {comparacion && <section className={seccion}>
       <h2 className={titulo}>3. Comparación con la evaluación anterior</h2>
-      {comparacion.previous ? <div className="text-[11px] text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+      {comparacion.previous && comparacion.summary.comparable ? <div className="text-[11px] text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-2.5 border border-slate-200">
         <p><strong>Nuevos detectados:</strong> {comparacion.summary.newCount} · <strong>Corregidos:</strong> {comparacion.summary.resolvedCount} · <strong>Recurrentes:</strong> {comparacion.summary.recurringCount} · <strong>Cambios de severidad:</strong> {comparacion.summary.severityChangedCount}</p>
-        <p className="mt-1 text-slate-500">Variación de puntaje: {comparacion.summary.scoreDelta ?? 0} pts · Variación de cobertura: {comparacion.summary.coverageDelta ?? 0}%</p>
+        <p className="mt-1 text-slate-500">{comparacion.summary.comparable ? `Variación de puntaje: ${comparacion.summary.scoreDelta ?? '—'} pts · Variación de cobertura: ${comparacion.summary.coverageDelta ?? '—'}%` : 'Puntaje y cobertura no comparables: cambió el motor o la metodología.'}</p>
       </div> : <p className="mt-1 text-[11px] text-slate-600 italic">No hay una evaluación anterior comparable; esta ejecución establece la línea base.</p>}
     </section>}
+
+    {!!evaluacion.dimensionScores?.length && <section className="mb-5"><h2 className={titulo}>Dimensiones y límites medidos</h2><table className="w-full table-fixed border-collapse"><thead><tr><th className={cell}>Dimensión</th><th className={cell}>Puntaje</th><th className={cell}>Cobertura</th><th className={cell}>Estado</th></tr></thead><tbody>{evaluacion.dimensionScores.map((dimension) => <tr key={dimension.id}><td className={cell}>{dimension.label}</td><td className={cell}>{dimension.score ?? 'No medido'}</td><td className={cell}>{dimension.coverage}%</td><td className={cell}>{dimension.state}</td></tr>)}</tbody></table></section>}
+    {advice?.state === 'approved' && !advice.stale && <section className={seccion}><h2 className={titulo}>Explicación asistida por IA · revisada por una persona</h2><p className="text-[11px] leading-relaxed text-slate-700">{advice.content.summary}</p><p className="mt-2 text-[9px] text-slate-500">{advice.provider} · {advice.model} · Revisión: {advice.reviewedAt ? new Date(advice.reviewedAt).toLocaleString('es-PE') : 'Registrada'}. El texto no determina puntajes, severidades ni estados.</p></section>}
 
     <section className="mb-4" style={{ breakInside: 'auto', pageBreakInside: 'auto' }}>
       <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200">
         <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
           {comparacion ? '4' : '3'}. Hallazgos priorizados por servicio y severidad
         </h2>
-        <span className="text-[10px] text-slate-500">Ordenados por nivel de riesgo ({prioritised.length})</span>
+        <span className="text-[10px] text-slate-500">Primeros {Math.min(25, prioritised.length)} de {prioritised.length} · detalle completo en JSON técnico</span>
       </div>
       <table className="w-full border-collapse" style={{ breakInside: 'auto', pageBreakInside: 'auto' }}>
         <thead style={{ display: 'table-header-group' }}>
@@ -108,7 +113,7 @@ export function SecurityReportDocument({ proyecto, evaluacion, comparacion }: {
           </tr>
         </thead>
         <tbody style={{ breakInside: 'auto', pageBreakInside: 'auto' }}>
-          {prioritised.map((f) => {
+          {prioritised.slice(0, 25).map((f) => {
             const svc = detectAwsService(f);
             return (
               <tr key={f.id} className="hover:bg-slate-50/50" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>

@@ -1,7 +1,8 @@
 import { FileText, Printer, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { useEffect } from 'react';
-import type { ComparacionEvaluacion, EvaluacionSeguridad, Proyecto } from '../../types/cloud';
+import { useEffect, useState } from 'react';
+import type { AssessmentAdvice, ComparacionEvaluacion, EvaluacionSeguridad, Proyecto } from '../../types/cloud';
+import { api } from '../../lib/api';
 import { printElement } from '../../lib/print';
 import { SecurityReportDocument } from './SecurityReportDocument';
 import { PaginatedSecurityReport } from './PaginatedSecurityReport';
@@ -10,6 +11,15 @@ import { assessmentLabel } from '../../lib/assessmentLabels';
 export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, comparacion }: {
   abierto: boolean; onCerrar: () => void; proyecto: Proyecto; evaluacion: EvaluacionSeguridad; comparacion: ComparacionEvaluacion | null;
 }) {
+  const [advice, setAdvice] = useState<AssessmentAdvice | null>(null);
+  useEffect(() => {
+    let active = true;
+    setAdvice(null);
+    if (abierto) void api<{ data: AssessmentAdvice | null }>(`/projects/${proyecto.id}/security/assessments/${evaluacion.id}/advice`).then((result) => {
+      if (active && result.data?.state === 'approved' && !result.data.stale) setAdvice(result.data);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [abierto, proyecto.id, evaluacion.id]);
   useEffect(() => {
     if (!abierto) return;
     const previousOverflow = document.body.style.overflow;
@@ -76,7 +86,7 @@ export function SecurityReportModal({ abierto, onCerrar, proyecto, evaluacion, c
         {/* Modal Body / Paper Sheet Preview */}
         <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6 md:p-8 bg-slate-950/70 scrollbar-thin">
           <PaginatedSecurityReport>
-            <SecurityReportDocument proyecto={proyecto} evaluacion={evaluacion} comparacion={comparacion} />
+            <SecurityReportDocument proyecto={proyecto} evaluacion={evaluacion} comparacion={comparacion} advice={advice} />
           </PaginatedSecurityReport>
         </div>
       </div>

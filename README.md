@@ -27,7 +27,7 @@ npm ci
 npm run dev
 ```
 
-Abre `http://127.0.0.1:29000`. La API responde en `http://127.0.0.1:27902/api/v1/health`; PostgreSQL escucha en `127.0.0.1:5433`. En Windows, tras la configuración inicial, `iniciar_sistema.bat` inicia los servicios y `apagar_sistema.bat` los detiene.
+Abre `http://127.0.0.1:29000`. La API responde en `http://127.0.0.1:27902/api/v1/health`; PostgreSQL escucha en `127.0.0.1:5433`. El arranque anterior usa comandos Docker y npm, sin requerir archivos `.bat`. Compose administra PostgreSQL; frontend y API se ejecutan con Node.
 
 ## Arquitectura y datos
 
@@ -61,7 +61,7 @@ La importación automática lee `cops.propuestas` y `cops.costos` del mismo orig
 
 Para continuar el desarrollo con otro asistente, usa el [prompt de continuidad](docs/PROMPT_CONTINUIDAD.md).
 
-La documentación maestra de la implementación de seguridad, operación y roadmap está en [docs/IMPLEMENTACION_SEGURIDAD_AWS.md](docs/IMPLEMENTACION_SEGURIDAD_AWS.md).
+El plan vigente está en [PLAN_ESCALAMIENTO_SEGURIDAD.md](PLAN_ESCALAMIENTO_SEGURIDAD.md). La entrega de fases 8 y 9, Groq, reproducción, resultados reales y límites se detallan en [docs/FASES_8_9.md](docs/FASES_8_9.md). [IMPLEMENTACION_SEGURIDAD_AWS.md](docs/IMPLEMENTACION_SEGURIDAD_AWS.md) conserva el historial de implementación.
 
 ## Inicio desde el contenedor Nexus
 

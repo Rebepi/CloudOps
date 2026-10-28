@@ -1,6 +1,6 @@
 # Implementación de análisis de seguridad en CloudOps
 
-> Seguimiento vigente: `../PLAN_ESCALAMIENTO_SEGURIDAD.md`. Este documento conserva las observaciones históricas del 2026-10-14. Motor `1.9.0`, metodología AWS `2026.14` y código/full `2026.19`. Incluye IaC Trivy config y políticas IAM literales, SAST Semgrep, secretos Gitleaks, correlación conocida entre fuentes, OSV acotado, tiempos y SBOM. Los analizadores se validaron realmente en Docker; las limitaciones parciales no se convierten en aprobados. No hay migración adicional para Fase 7. Los permisos Config adicionales siguen pendientes de validación AWS. Guías: `INFRAESTRUCTURA_DECLARADA.md`, `CADENA_SUMINISTRO.md`, `SAST_Y_ANALIZADORES.md` y `SECRETOS_REPOSITORIO.md`.
+> Seguimiento vigente: [PLAN_ESCALAMIENTO_SEGURIDAD.md](../PLAN_ESCALAMIENTO_SEGURIDAD.md) y [FASES_8_9.md](FASES_8_9.md). Motor actual `1.10.0`, metodología AWS `2026.14` y código/integral `2026.19`. La entrega actual añade inventario medido, reducción de ruido, comparación estricta, reportes y borradores Groq revisables; requiere migraciones hasta 010. La nueva línea base real conserva S3/Config parciales e Inspector deshabilitado. El contenido restante de este documento conserva observaciones históricas del 2026-10-14 y sus actualizaciones posteriores; no representa por sí solo el estado operativo actual.
 
 Última actualización: 2026-10-14  
 Cuenta de prueba: `143924590537`  

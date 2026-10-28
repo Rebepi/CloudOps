@@ -35,7 +35,7 @@ export type AwsSecuritySnapshot = {
   inspectorError: string | null;
   s3?: { buckets: { name: string; blockPublicAccess: boolean | null; publicPolicy: boolean | null; inspectionError?: string | null }[]; truncated: boolean } | null;
   s3Error?: string | null;
-  network?: { securityGroups: { id?: string; name?: string; vpcId?: string; publicIngress: { cidr: string; protocol?: string; fromPort?: number; toPort?: number }[] }[] } | null;
+  network?: { securityGroups: { id?: string; name?: string; vpcId?: string; publicIngress: { cidr: string; protocol?: string; fromPort?: number; toPort?: number }[] }[]; truncated?: boolean } | null;
   networkError?: string | null;
   rds?: { instances: { id?: string; arn?: string; engine?: string; publiclyAccessible: boolean; storageEncrypted: boolean; deletionProtection: boolean; multiAz: boolean }[]; truncated: boolean } | null;
   rdsError?: string | null;
@@ -354,6 +354,17 @@ export function evaluateAwsSecurity(snapshot: AwsSecuritySnapshot) {
       rdsError: snapshot.rdsError ?? null,
       rdsInstances: snapshot.rds?.instances.length ?? 0,
       rdsTruncated: Boolean(snapshot.rds?.truncated),
+      awsServiceCoverage: [
+        { service: 'iam', scope: 'global', region: null, unit: 'identidades', observed: snapshot.identities.length + snapshot.roles.length, state: snapshot.truncated ? 'partial' : 'measured', reason: snapshot.truncated ? 'Inventario IAM limitado.' : null },
+        { service: 'cloudtrail', scope: 'regional', region: snapshot.region ?? null, unit: 'trails', observed: snapshot.trails.length, state: snapshot.trails.some((trail) => trail.isLogging == null) ? 'partial' : 'measured', reason: snapshot.trails.some((trail) => trail.isLogging == null) ? 'No se verificó el estado de todos los trails.' : null },
+        { service: 's3', scope: 'global', region: null, unit: 'buckets', observed: snapshot.s3?.buckets.length ?? null,
+          state: snapshot.s3Error || !snapshot.s3 ? 'not_measured' : snapshot.s3.truncated || snapshot.s3.buckets.some((bucket) => bucket.inspectionError || bucket.publicPolicy == null || bucket.blockPublicAccess == null) ? 'partial' : 'measured', reason: snapshot.s3Error ?? null },
+        { service: 'ec2', scope: 'regional', region: snapshot.region ?? null, unit: 'security groups', observed: snapshot.network?.securityGroups.length ?? null, state: snapshot.networkError || !snapshot.network ? 'not_measured' : snapshot.network.truncated ? 'partial' : 'measured', reason: snapshot.networkError ?? null },
+        { service: 'rds', scope: 'regional', region: snapshot.region ?? null, unit: 'instancias', observed: snapshot.rds?.instances.length ?? null, state: snapshot.rdsError || !snapshot.rds ? 'not_measured' : snapshot.rds.truncated ? 'partial' : 'measured', reason: snapshot.rdsError ?? null },
+        { service: 'security-hub', scope: 'regional', region: snapshot.region ?? null, unit: 'hallazgos de postura', observed: snapshot.findingsError ? null : snapshot.findings.length, state: snapshot.findingsError ? 'not_measured' : snapshot.findingsTruncated ? 'partial' : 'measured', reason: snapshot.findingsError },
+        { service: 'config', scope: 'regional', region: snapshot.region ?? null, unit: 'reglas', observed: snapshot.config?.rules.length ?? null, state: snapshot.configError || !snapshot.config ? 'not_measured' : snapshot.config.truncated || snapshot.config.metadataError || snapshot.config.rules.some((rule) => rule.detailError || rule.detailsTruncated) ? 'partial' : 'measured', reason: snapshot.configError ?? snapshot.config?.metadataError ?? null },
+        { service: 'inspector', scope: 'regional', region: snapshot.region ?? null, unit: 'recursos cubiertos', observed: snapshot.inspector?.coverage.length ?? null, state: snapshot.inspectorError || !snapshot.inspector || snapshot.inspector.accountStatus === 'DISABLED' || !snapshot.inspector.coverage.length ? 'not_measured' : snapshot.inspector.truncated ? 'partial' : 'measured', reason: snapshot.inspectorError ?? (snapshot.inspector?.accountStatus === 'DISABLED' ? 'Servicio deshabilitado.' : !snapshot.inspector?.coverage.length ? 'Sin recursos cubiertos.' : null) },
+      ],
       scoreCapsApplied: criticalExposure ? ['critical-finding:45'] : [],
       methodology: 'Controles propios de CloudOps sobre IAM, CloudTrail, S3, Security Groups y RDS, más Security Hub V2/CSPM, AWS Config e Inspector; puntaje con evidencia observada, deduplicación y exclusión de cobertura opcional.',
       methodologyVersion: '2026.14',

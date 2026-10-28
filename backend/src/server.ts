@@ -21,6 +21,10 @@ import { IAC_CATALOG } from './security/iacCatalog.js';
 import { mergeAssessments } from './fullAssessment.js';
 import { serializeSbom, sbomChecksum, type CycloneDxBom } from './security/supplyChain.js';
 import { registerSbomRoute } from './security/sbomRoute.js';
+import { registerPhaseRoutes } from './security/phaseRoutes.js';
+import { buildRiskOverview, priorityFor } from './security/riskOverview.js';
+import { comparableAssessments, compareDimensions } from './security/comparison.js';
+import type { DimensionResult } from './security/dimensions.js';
 import { buildAnalyzerRuns, computeDimensionBreakdown, dimensionForFinding, type FindingInput } from './security/dimensions.js';
 import { computeFingerprint } from './findingFingerprint.js';
 import { startScheduler, computeNextRun } from './scheduler.js';
@@ -71,6 +75,7 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
     SELECT sa.id, sa.project_id AS "projectId", sa.assessment_type AS "assessmentType", sa.status, sa.region,
       sa.score, sa.coverage, sa.confidence, sa.summary, sa.error_message AS "errorMessage",
       sa.dimension_scores AS "dimensionScores", sa.control_results AS "controlResults", sa.engine_version AS "engineVersion",
+      sa.methodology_version AS "methodologyVersion",
       sa.started_at AS "startedAt", sa.completed_at AS "completedAt",
       artifact_id AS "artifactId", pa.original_name AS "artifactName", pa.sha256 AS "artifactSha256",
       pa.size_bytes AS "artifactSizeBytes", pa.metadata AS "artifactMetadata"
@@ -91,33 +96,35 @@ async function loadSecurityAssessment(projectId: string, assessmentId: string) {
       findings_count AS "findingsCount", duration_ms AS "durationMs", error, detail, created_at AS "createdAt"
     FROM assessment_analyzers WHERE assessment_id=$1 ORDER BY analyzer_id
   `, [assessmentId]);
-  return { ...assessment.rows[0], findings: findings.rows, analyzers: analyzers.rows };
+  const ordered = findings.rows.map((finding) => ({ ...finding, priority: priorityFor(finding) })).sort((a, b) => b.priority.rank - a.priority.rank || String(a.id).localeCompare(String(b.id)));
+  return { ...assessment.rows[0], findings: ordered, analyzers: analyzers.rows,
+    riskOverview: buildRiskOverview(ordered, assessment.rows[0].region) };
 }
 
 async function loadComparison(projectId: string, assessmentId: string) {
-  const current = await db.query<{ assessmentType: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string }>(`
-    SELECT assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion"
+  const current = await db.query<{ assessmentType: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string; dimensionScores: DimensionResult[] }>(`
+    SELECT assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion", dimension_scores AS "dimensionScores"
     FROM security_assessments WHERE id=$1 AND project_id=$2 AND status='completed'
   `, [assessmentId, projectId]);
   if (!current.rowCount) return null;
   const assessment = current.rows[0]!;
-  const previous = await db.query<{ id: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string }>(`
-    SELECT id, score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion"
+  const previous = await db.query<{ id: string; assessmentType: string; score: number | null; coverage: number; startedAt: Date; methodologyVersion: string; engineVersion: string; dimensionScores: DimensionResult[] }>(`
+    SELECT id, assessment_type AS "assessmentType", score, coverage, started_at AS "startedAt", methodology_version AS "methodologyVersion", engine_version AS "engineVersion", dimension_scores AS "dimensionScores"
     FROM security_assessments
     WHERE project_id=$1 AND assessment_type=$2 AND status='completed' AND started_at < $3
     ORDER BY started_at DESC LIMIT 1
   `, [projectId, assessment.assessmentType, assessment.startedAt]);
   const previousRow = previous.rows[0] ?? null;
-  const comparable = Boolean(previousRow && previousRow.methodologyVersion === assessment.methodologyVersion && previousRow.engineVersion === assessment.engineVersion);
+  const comparable = Boolean(previousRow && comparableAssessments(assessment, previousRow));
   const findingsOf = async (id: string) => (await db.query(`
     SELECT id, fingerprint, external_id AS "externalId", source, category, title, severity, status, resource, framework
     FROM security_findings WHERE assessment_id=$1
   `, [id])).rows;
   const currentFindings = await findingsOf(assessmentId);
-  const previousFindings = previousRow ? await findingsOf(previousRow.id) : [];
+  const previousFindings = previousRow && comparable ? await findingsOf(previousRow.id) : [];
   const previousMap = new Map(previousFindings.map((finding) => [finding.fingerprint, finding]));
   const currentMap = new Map(currentFindings.map((finding) => [finding.fingerprint, finding]));
-  const newFindings = currentFindings.filter((finding) => !previousMap.has(finding.fingerprint));
+  const newFindings = comparable ? currentFindings.filter((finding) => !previousMap.has(finding.fingerprint)) : [];
   const resolvedFindings = previousFindings.filter((finding) => !currentMap.has(finding.fingerprint));
   const recurring = currentFindings.filter((finding) => previousMap.has(finding.fingerprint));
   const severityChanged = recurring
@@ -140,6 +147,7 @@ async function loadComparison(projectId: string, assessmentId: string) {
     resolvedFindings,
     recurring,
     severityChanged,
+    dimensions: compareDimensions(assessment.dimensionScores ?? [], previousRow?.dimensionScores ?? [], comparable),
   };
 }
 
@@ -235,7 +243,7 @@ async function completeAssessment(client: PoolClient, assessmentId: string, asse
       dimension_scores=$7,control_results=$8,engine_version=$9,completed_at=now()
     WHERE id=$1
   `, [assessmentId, evaluation.score, evaluation.coverage, evaluation.confidence, JSON.stringify(evaluation.summary),
-    String(evaluation.summary.methodologyVersion ?? '2026.19'), JSON.stringify(breakdown), JSON.stringify(controls), '1.9.0']);
+    String(evaluation.summary.methodologyVersion ?? '2026.19'), JSON.stringify(breakdown), JSON.stringify(controls), '1.10.0']);
   if (evaluation.sbom) {
     await client.query(`INSERT INTO assessment_sboms(assessment_id,format,spec_version,sha256,content) VALUES($1,$2,$3,$4,$5)
       ON CONFLICT(assessment_id) DO UPDATE SET format=EXCLUDED.format,spec_version=EXCLUDED.spec_version,sha256=EXCLUDED.sha256,content=EXCLUDED.content`,
@@ -743,6 +751,7 @@ app.get<{ Params: { id: string } }>('/api/v1/projects/:id/security/assessments',
   const result = await db.query(`
     SELECT sa.id,sa.project_id AS "projectId",sa.assessment_type AS "assessmentType",sa.status,sa.region,
       sa.score,sa.coverage,sa.confidence,sa.summary,sa.error_message AS "errorMessage",
+      sa.engine_version AS "engineVersion",sa.methodology_version AS "methodologyVersion",sa.dimension_scores AS "dimensionScores",
       sa.started_at AS "startedAt",sa.completed_at AS "completedAt",sa.artifact_id AS "artifactId",
       pa.original_name AS "artifactName",pa.sha256 AS "artifactSha256",pa.size_bytes AS "artifactSizeBytes",
       count(sf.id)::int AS "findingCount"
@@ -768,6 +777,17 @@ app.get<{ Params: { id: string; assessmentId: string } }>('/api/v1/projects/:id/
 });
 
 registerSbomRoute(app, db, uuidPattern);
+registerPhaseRoutes(app, {
+  db, uuid: uuidPattern, load: loadSecurityAssessment,
+  actor: async (request) => {
+    const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+    const identity = token ? verifyToken(token) : null;
+    if (!identity) return null;
+    const user = await getUserById(identity.id);
+    return user?.is_active ? user.id : null;
+  },
+  groq: { apiKey: config.groqApiKey, model: config.groqModel },
+});
 
 app.get('/api/v1/security/rules', async () => ({ data: { builtin: BUILTIN_RULE_CATALOG, sast: await getSastCatalog(), secrets: await getSecretCatalog(), iac: IAC_CATALOG } }));
 

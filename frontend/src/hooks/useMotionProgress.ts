@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 
 /** Visual interpolation only: the supplied result remains authoritative. */
-export function useMotionProgress(replayKey: string | number, duration = 850) {
+export function useMotionProgress(replayKey: string | number, duration = 850, enabled = true) {
   const [progress, setProgress] = useState(0);
   useEffect(() => {
+    if (!enabled) { setProgress(0); return; }
     const preference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     if (preference?.matches) { setProgress(1); return; }
     setProgress(0);
@@ -17,7 +18,7 @@ export function useMotionProgress(replayKey: string | number, duration = 850) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [replayKey, duration]);
+  }, [replayKey, duration, enabled]);
   return progress;
 }
 

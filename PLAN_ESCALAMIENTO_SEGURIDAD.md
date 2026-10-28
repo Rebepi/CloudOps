@@ -1,8 +1,8 @@
 # Plan de escalamiento del módulo de seguridad
 
-Estado actual: bases de Fases 0 a 7 implementadas, con Semgrep, Trivy y Gitleaks preparados y verificados realmente. Las ampliaciones indicadas en cada fase y las Fases 8 y 9 siguen pendientes.
+Estado actual: bases de Fases 0 a 9 implementadas. Semgrep, Trivy y Gitleaks preparados y verificados realmente. Las ampliaciones indicadas en cada fase mantienen sus límites explícitos. La validación actual está en `docs/FASES_8_9.md` y `docs/baselines/phase89-2026-10-28.json`.
 
-Versión actual: motor `1.9.0`, metodología AWS `2026.14` y metodología de código/full `2026.19`.
+Versión actual: motor `1.10.0`, metodología AWS `2026.14` y metodología de código/full `2026.19`. Las fases 8 y 9 no cambian la fórmula de puntaje; agregan presentación, comparación estricta y texto consultivo.
 
 Este documento es la referencia del avance actual. `docs/BASELINE_SEGURIDAD.md` conserva resultados históricos; no representa una ejecución del motor actualizado.
 
@@ -308,6 +308,8 @@ Guía, políticas, referencias y límites: `docs/INFRAESTRUCTURA_DECLARADA.md`. 
 
 ### Fase 8: expansión AWS y reducción de ruido
 
+Estado: base implementada. Inventario resumido de los ocho colectores existentes, con alcance global/regional y medición parcial/no medida. No equivale a descubrir todos los servicios AWS ni todas las regiones automáticamente.
+
 Objetivo: aumentar profundidad sin inundar el informe.
 
 Entregables:
@@ -320,7 +322,11 @@ Entregables:
 
 Criterio de salida: los informativos no dominan el conteo principal y cada servicio muestra su estado de medición.
 
+Implementado: conteos no informativos en resumen, hero, gráfico e informe ejecutivo; filtro explícito para conservar el contexto; búsqueda y paginación por recurso/servicio/región; prioridad determinista explicada sin alterar severidades. La correlación conserva las observaciones originales y solo deduplica los controles equivalentes del catálogo existente. Las fuentes no disponibles no se muestran como aprobadas. Ver `docs/FASES_8_9.md`.
+
 ### Fase 9: reportes, tendencias e IA consultiva
+
+Estado: base implementada. Groq genera borradores vinculados al hash de toda la evidencia de la evaluación. La publicación exige revisión humana registrada; no hay aprobación automática.
 
 Objetivo: convertir evidencia en decisiones.
 
@@ -332,6 +338,8 @@ Entregables:
 - Revisión humana obligatoria antes de publicar conclusiones de IA.
 
 Criterio de salida: la IA no modifica puntajes, severidades ni estados; solo agrega texto identificado como asistido.
+
+Implementado: comparación por seis dimensiones y tendencia con igualdad de alcance, motor y metodología; cambios de versión sin deltas ni falsas resoluciones; reporte ejecutivo paginado y reporte técnico JSON autenticado con evidencia completa; integración Groq exclusivamente en backend y con datos normalizados anónimos. Migración aditiva `010_assessment_advice.cjs`, historial de borradores/revisión y exclusión de texto desactualizado o sin aprobar en las exportaciones. Se conservan los reportes históricos.
 
 ## 6. Métricas de éxito
 
@@ -367,8 +375,8 @@ npm run lint
 npm test
 ```
 
-Verificación de la entrega: compilación backend/frontend, lint, 136 pruebas backend y 37 frontend aprobadas. Además de los casos reales de Semgrep, Trivy de imágenes y Gitleaks documentados, se ejecutó Trivy config sin red sobre Terraform, CloudFormation, Kubernetes y Dockerfile. Se verificaron casos vulnerables/corregidos, módulos locales y supresiones sin aprobar alcance no resuelto. No se sobrescribieron evaluaciones históricas ni se desplegaron recursos o modificaron políticas/credenciales AWS. Los permisos Config adicionales siguen pendientes de validación en vivo. El audit backend quedó sin vulnerabilidades conocidas tras actualizar los parches afectados.
+Verificación de fases 8 y 9: compilación backend/frontend, lint, 145 pruebas backend y 40 frontend aprobadas. Se verificaron los motores reales Semgrep, Trivy de imágenes/config y Gitleaks. Se generaron nuevas evaluaciones ZIP, GitHub, AWS e integral y un borrador real con Groq; se comprobaron hashes, huellas y dimensiones idénticos entre ZIP y repositorio. En Chrome, el ejecutivo ocupa tres páginas A4 sin desbordamiento y excluye la IA no aprobada. Migraciones hasta 010 aplicadas. No se sobrescribieron evaluaciones históricas ni se desplegaron recursos o modificaron políticas/credenciales AWS. Config y S3 conservaron cobertura parcial; Inspector sigue deshabilitado. Resultados y límites: `docs/FASES_8_9.md`.
 
 ## 9. Próximo paso
 
-Continuar con Fase 8 (expansión AWS y reducción de ruido), ampliar catálogos y resolver las métricas/formatos pendientes. En otros entornos, instalar dependencias, aplicar las migraciones existentes, preparar imágenes fijadas y habilitar los analizadores. Para validar Config en vivo se requieren los dos permisos adicionales. Las evaluaciones históricas se conservan; una nueva ejecución genera IaC, SAST, secretos, SBOM, desglose y tiempos.
+Consultar `docs/FASES_8_9.md` para los resultados actuales y las ampliaciones pendientes. En otros entornos, instalar dependencias con `npm ci`, aplicar migraciones hasta 010, preparar imágenes fijadas y habilitar los analizadores. `scripts/verify-phase89-baseline.ts` usa la API y la persistencia actual para los cuatro flujos; `npm run security:baseline -- <project-id>` también usa ahora la API, evitando la antigua persistencia directa incompleta. Las evaluaciones históricas se conservan.

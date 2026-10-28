@@ -38,6 +38,7 @@ export interface Proyecto {
 }
 
 export interface HallazgoSeguridad {
+  priority?: { version: string; rank: number; actionable: boolean; reasons: string[] };
   id: string;
   assessmentId: string;
   externalId?: string | null;
@@ -81,6 +82,7 @@ export interface HallazgoComparado extends HallazgoSeguridad {
 }
 
 export interface ComparacionEvaluacion {
+  dimensions?: Array<{ id: string; label: string; currentScore: number | null; previousScore: number | null; currentCoverage: number; previousCoverage: number | null; scoreDelta: number | null; coverageDelta: number | null; comparable: boolean; currentState: string; previousState: string | null }>;
   assessmentType: string;
   current: { id: string; score: number | null; coverage: number };
   previous: { id: string; score: number | null; coverage: number; startedAt: string; methodologyVersion: string } | null;
@@ -171,6 +173,7 @@ export interface EvaluacionSeguridad {
   coverage: number;
   confidence: 'low' | 'medium' | 'high';
   summary: {
+    awsServiceCoverage?: Array<{ service: string; scope: string; region: string | null; unit: string; observed: number | null; state: string; reason: string | null }>;
     iac?: { state: string; reason: string | null; filesCandidate: number; filesSubmitted: number; filesSkipped: number; targetsAnalyzed: number;
       catalog: { version: string; rulesSource: string; engineVersion: string; image: string; deployment: string };
       engine: { mode: string; image: string | null; vendorInvoked: boolean };
@@ -267,6 +270,9 @@ export interface EvaluacionSeguridad {
   dimensionScores?: DimensionSeguridad[];
   controlResults?: ControlDimensionSeguridad[];
   engineVersion?: string;
+  methodologyVersion?: string;
+  riskOverview?: { version: string; total: number; actionable: number; informational: number; excluded: number;
+    groups: Array<{ resource: string; service: string; region: string; actionable: number; informational: number; counts: Record<string, number>; sources: string[]; priority: number; findingIds: string[] }> };
   analyzers?: AnalizadorEvaluacion[];
   findingCount?: number;
   findings?: HallazgoSeguridad[];
@@ -275,6 +281,12 @@ export interface EvaluacionSeguridad {
   artifactSha256?: string | null;
   artifactSizeBytes?: number | string | null;
   artifactMetadata?: Record<string, unknown> | null;
+}
+
+export interface AssessmentAdvice {
+  id: string; state: 'draft' | 'approved' | 'rejected'; stale?: boolean; provider: string; model: string; promptVersion: string;
+  inputHash: string; createdAt: string; reviewedAt?: string; reviewedBy?: string; reviewNote?: string;
+  content: { summary: string; priorities: Array<{ findingRefs: string[]; explanation: string; action: string; owner?: string; verification?: string; urgency?: 'immediate' | 'planned' | 'verify' }>; architecture?: Array<{ componentRefs: string[]; serviceKey: string; rationale: string; tradeoff: string; verification: string }>; nextChecks?: Array<{ dimension: string; reason: string; action: string }>; limitations: string[]; references: Record<string, string> };
 }
 
 export interface AwsConnectionStatus {
