@@ -1,0 +1,37 @@
+Trabajo Final
+18
+Verificación del sistema y resultados documentados
+La documentación de CloudOps registra una línea base real del 28 de octubre de 2026 sobre el mismo 
+commit de SalesIA. Sirve como evidencia del funcionamiento de los flujos, no como medición del 
+rendimiento académico ni como certificación del proyecto evaluado.
+Flujo validado Índice del motor Cobertura Hallazgos no 
+informativos
+Código ZIP 0/100 75 % 338
+Repositorio GitHub 0/100 75 % 338
+Cuenta AWS 18/100 82 % 52
+Integral ZIP y AWS 5/100 79 % 390
+ZIP y GitHub produjeron los mismos conteos para el código evaluado. La integral combina un alcance 
+distinto: su valor no significa que el código haya mejorado. Cobertura expresa lo que pudo comprobarse; el 
+índice resume penalizaciones del motor y no es un porcentaje de protección.
+Comprobaciones registradas
+Aspecto Evidencia y alcance
+Persistencia y entorno PostgreSQL 17, migraciones y dependencias documentadas. Las consultas 
+AWS dependen del rol y de la disponibilidad de cada servicio.
+Análisis SBOM de 669 componentes y consulta OSV de 339 dependencias en la 
+línea base. Se conservaron resultados parciales y fuentes omitidas.
+Interfaz y lógica
+La entrega reciente registra 156 pruebas backend y 72 frontend, además 
+de compilación, lint y revisión de navegación. Son pruebas documentadas; 
+no todas equivalen a una validación integral de producción.
+Asesor IA Generación real de propuestas con referencias válidas y revisión humana. 
+El borrador no modifica el índice ni se incorpora al informe como aprobado.
+Límites y mejoras posteriores
+Ampliar permisos y validaciones de autorización antes de ofrecer aislamiento entre organizaciones; 
+aumentar cobertura de lenguajes, secretos históricos y configuraciones calculadas; completar el inventario 
+de servicios/regiones; y mejorar operación, escalabilidad y tamaño de la aplicación. Los servicios AWS 
+opcionales pueden estar deshabilitados o entregar evidencia parcial.
+Fuentes del trabajo
+Repositorio CloudOps: README.md; docs/INSTALACION.md; docs/FASES_8_9.md; 
+docs/REDISENO_EXPERIENCIA_SEGURIDAD.md; documentación de analizadores, cadena de suministro e 
+infraestructura declarada; migraciones y componentes de los ocho módulos. Corte de revisión: 4 de noviembre de 
+2026.

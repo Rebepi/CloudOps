@@ -1,0 +1,61 @@
+Trabajo Final
+7
+Ejecución de la solución continuación
+OPERACIONES / PASOS / SUBPASOS
+NORMAS TÉCNICAS -
+ESTANDARES / SEGURIDAD / 
+MEDIO AMBIENTE 
+11. Registrar proyectos. Elegir ZIP o GitHub y guardar sus datos 
+de origen.
+Validar formato y tamaño; no 
+ejecutar ni instalar el código 
+recibido.
+12. Seleccionar evaluación. Elegir código, AWS o integral y 
+mostrar el estado de ejecución.
+Consentimiento de alcance y 
+manejo de errores; no confundir 
+carga con análisis terminado.
+13. Ejecutar analizadores. Revisar secretos, código, 
+dependencias, imágenes e infraestructura declarada.
+OSV, Semgrep, Gitleaks, Trivy y 
+reglas internas; conservar 
+estados parciales u omitidos.
+14. Normalizar evidencia. Relacionar hallazgos, fuente, severidad, 
+componente y cobertura.
+Deduplicación y trazabilidad; 
+ausencia de evidencia no 
+equivale a seguridad.
+15. Presentar resultados. Organizar Diagnóstico, Riesgos, 
+Proyecto y Plan de mejora.
+Accesibilidad, contraste, ayudas 
+contextuales y navegación sin 
+información duplicada.
+16. Explorar estructura. Mostrar árbol de archivos, tecnologías y 
+dependencias vinculadas a evidencia.
+Una tecnología detectada no 
+demuestra un despliegue ni 
+conexiones de red.
+17. Solicitar asesoría IA. Enviar contexto normalizado, validar 
+referencias y mostrar propuestas de corrección.
+Privacidad: sin código ni valores 
+secretos; revisión humana y sin 
+ejecución automática.
+18. Comprobar y exportar. Probar flujos, revisar el informe y 
+comparar evaluaciones compatibles.
+Una tarea marcada como 
+atendida no demuestra 
+remediación; se requiere nueva 
+evaluación.
+19. Preparar evidencias. Insertar capturas, registrar condiciones 
+de prueba y revisar el formato alumno.
+Ocultar claves, tokens y datos 
+sensibles; no alterar resultados 
+para la presentación.
+20. Cerrar la práctica. Guardar código y respaldos; apagar 
+servicios de laboratorio que no se utilicen.
+SHI: postura, pausas, ventilación 
+y cableado seguro. Ambiente: 
+ahorro energético y entrega 
+digital.
+Las pautas de calidad, seguridad y ambiente orientan la práctica. Este trabajo no declara una certificación 
+normativa ni una auditoría de cumplimiento legal.

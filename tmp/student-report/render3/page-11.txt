@@ -1,0 +1,13 @@
+Trabajo Final
+11
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 01 Dashboard
+Mostrar cuenta/región, indicadores y origen de los datos.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 02 Infraestructura
+Mostrar regiones o zonas y recursos observados; identificar las simulaciones.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________

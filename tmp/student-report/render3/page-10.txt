@@ -1,0 +1,10 @@
+Trabajo Final
+10
+DIBUJO / ESQUEMA / DIAGRAMA DE PROPUESTA
+Modelo de información resumido
+El esquema resume las principales entidades de las migraciones. Los resultados se conservan por 
+evaluación para mantener trazabilidad. Propuestas e ítems de costo pueden estar vinculados a un 
+proyecto; no se representa un modelo de aislamiento entre organizaciones.
+Tema Integrantes Escala
+CloudOps Ramos Gonzales Diego / Renzo Bendezu Pinaud Esquema sin 
+escala

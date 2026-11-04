@@ -1,0 +1,56 @@
+Trabajo Final
+20
+6. VALORAR
+Califica el impacto que representa la propuesta de solución ante la situación planteada en 
+el caso práctico.
+Autoevaluación propuesta para revisión y confirmación de los integrantes. No constituye una calificación 
+del instructor.
+CRITERIO DE 
+EVALUACIÓN DESCRIPCIÓN DEL CRITERIO
+PUNTUAC
+IÓN 
+MÁXIMA
+PUNTAJE
+CALIFICADO 
+POR EL 
+ESTUDIANTE
+Identificación del 
+problema
+Claridad en la identificación del problema 
+planteado.
+3 3
+Relevancia de la 
+propuesta de solución
+La propuesta responde adecuadamente al 
+problema planteado y es relevante para el 
+contexto del caso práctico.
+8 7
+Viabilidad técnica
+La solución es técnicamente factible, 
+tomando en cuenta los recursos y 
+conocimientos disponibles.
+6 5
+Cumplimiento de 
+Normas
+La solución cumple con todas las normas 
+técnicas de seguridad, higiene y medio 
+ambiente.
+3 2
+PUNTAJE TOTAL 20 17
+Fundamento de la valoración
+Identificación del problema, 3/3: se explica la dispersión de información y la necesidad de relacionar 
+operación, costos y seguridad. Relevancia, 7/8: los módulos cubren la propuesta de forma integrada; resta 
+completar la evidencia visual y validar las preguntas del curso.
+Viabilidad técnica, 5/6: existe implementación, persistencia, pruebas y consultas reales; todavía se 
+necesitan controles adicionales para una operación productiva a mayor escala. Normas, 2/3: se incorporan 
+mínimo privilegio, protección de secretos, calidad, ergonomía y uso responsable de recursos; no se 
+acredita una auditoría formal de cumplimiento.
+Impacto de la propuesta
+CloudOps permite conectar la revisión del entorno AWS con la planificación de servicios y presupuesto, y 
+con la evaluación de código y configuración. El usuario puede pasar de una observación a su evidencia y 
+preparar acciones concretas. El principal aporte es la organización y trazabilidad de la información para 
+decidir; el ahorro económico y la reducción de incidentes requieren mediciones posteriores.
+Como aprendizaje, el trabajo integra desarrollo web, bases de datos, contenedores, redes, identidad cloud, 
+análisis de software e IA con revisión humana. La siguiente etapa será fortalecer la operación y preparar la 
+documentación técnica específica del sistema.
+Conformidad de integrantes: ________________________ Fecha: ______________

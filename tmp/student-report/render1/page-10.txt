@@ -1,0 +1,10 @@
+Trabajo Final
+10
+DIBUJO / ESQUEMA / DIAGRAMA DE PROPUESTA
+Flujo de uso de la solución
+El usuario puede consultar el entorno, formular una propuesta o evaluar un proyecto. En seguridad, la 
+evidencia conduce al diagnóstico y a la mejora; su efectividad se comprueba con una ejecución posterior 
+compatible.
+Tema Integrantes Escala
+CloudOps Ramos Gonzales Diego / Renzo Bendezu Pinaud Esquema sin 
+escala

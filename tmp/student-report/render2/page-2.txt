@@ -1,0 +1,31 @@
+Trabajo Final
+2
+DATOS DEL ESTUDIANTE
+Apellidos y Nombres: 
+Ramos Gonzales Diego
+Renzo Bendezu Pinaud ID: 001572484
+001596480
+Dirección Zonal/CFP: Lima - Callao / CFP Independencia
+Carrera: Ingeniería de Software con Inteligencia Artificial Semestre: VI
+Curso/ Mód. Formativo: TECNOLOGÍA CLOUD CON AWS
+Tema de Trabajo Final: CloudOps para la planificación y evaluación de entornos AWS
+1. INFORMACIÓN
+Identifica la problemática del caso práctico propuesto.
+La consulta de infraestructura, redes, permisos, costos y riesgos de software suele estar 
+distribuida entre varias herramientas y pantallas. Para un equipo que debe diseñar o revisar una 
+solución AWS, esta dispersión dificulta relacionar el presupuesto, los servicios elegidos, la 
+estructura del proyecto y los problemas que requieren atención.
+El caso desarrollado consiste en organizar esa información en CloudOps. El problema no es 
+únicamente detectar vulnerabilidades: también es reconocer qué recursos se observaron, cómo 
+se conectan las decisiones de arquitectura con el costo y qué evidencia respalda una 
+recomendación. Sin esa separación, una estimación puede confundirse con un gasto real o una 
+cobertura alta con ausencia de riesgos.
+Identifica propuesta de solución y evidencias.
+Desarrollamos una aplicación web que reúne consulta de AWS, planificación de soluciones, 
+estimación de costos y evaluación de proyectos ZIP o GitHub. Presenta resultados con su 
+alcance y permite revisar hallazgos, explorar estructura y dependencias, preparar mejoras 
+asistidas por IA y conservar el historial en PostgreSQL.
+Las evidencias del trabajo son el código del sistema, sus migraciones, las pruebas y líneas base 
+registradas, los diagramas de esta propuesta y las capturas previstas en la sección de ejecución. 
+El objetivo es apoyar decisiones técnicas y económicas con información trazable; el sistema no 
+certifica seguridad ni aplica correcciones automáticamente.

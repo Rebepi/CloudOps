@@ -1,0 +1,10 @@
+Trabajo Final
+5
+3. MATERIALES E INSUMOS
+Descripción Cantidad
+Repositorio CloudOps y documentación 1 repositorio
+ZIP y repositorio de prueba autorizados 1 caso 
+mínimo
+Acceso a internet y consumo de API/AWS Según uso
+Formato alumno y capturas de evidencia 1 entrega 
+digital

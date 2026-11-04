@@ -1,0 +1,48 @@
+Trabajo Final
+6
+3. DECIDIR PROPUESTA
+Describe la propuesta determinada para la solución del caso práctico
+PROPUESTA DE SOLUCIÓN
+Proponemos CloudOps como un espacio de trabajo para comprender un entorno AWS, diseñar 
+alternativas y evaluar proyectos con evidencia. Integra consulta operativa, estimación económica y 
+análisis de software; conserva las evaluaciones para dar seguimiento y exportar resultados.
+Objetivo general: centralizar la información necesaria para planificar y revisar soluciones cloud, 
+diferenciando datos observados, estimaciones y recomendaciones.
+Objetivos específicos: visualizar recursos y redes; registrar propuestas y costos; analizar código y 
+configuración AWS; priorizar hallazgos; explicar cobertura y límites; y preparar un plan de mejora 
+revisable.
+Alcance funcional de la solución
+Módulo Función principal Utilidad
+Dashboard Vista general de la cuenta, recursos, actividad y 
+costos disponibles. Orientar la revisión del entorno.
+Infraestructura Regiones, zonas e inventario; simulación visual de 
+failover.
+Explorar distribución; la simulación 
+no prueba continuidad.
+Red y VPC VPC, subredes, rutas, gateways, Security Groups y 
+Flow Logs disponibles.
+Revisar conectividad y reglas de 
+exposición.
+Centro de 
+Seguridad
+Identidades, permisos, registros y fuentes de 
+postura; simulación IAM.
+Examinar acceso y controles de 
+cuenta.
+Servicios AWS Catálogo de servicios y ofertas consultadas 
+mediante AWS Pricing. Comparar opciones tecnológicas.
+Planificación Cloud Requerimientos, dimensionamiento, propuestas y 
+exportaciones.
+Evaluar alternativas antes de 
+implementarlas.
+Costos y FinOps Ítems de estimación, presupuesto y gastos 
+consultados de AWS.
+Diferenciar costo proyectado y gasto 
+observado.
+Proyectos ZIP/GitHub, evaluación de código/AWS/integral, 
+evidencias e IA.
+Diagnóstico, riesgos, estructura y 
+plan de mejora.
+La viabilidad inicial se basa en un entorno local reproducible y en el uso de servicios existentes mediante 
+permisos autorizados. Las consultas y proveedores pueden generar costos; las cifras deben revisarse para 
+la región y fecha de cada decisión.

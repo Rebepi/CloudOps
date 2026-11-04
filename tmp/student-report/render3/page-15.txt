@@ -1,0 +1,13 @@
+Trabajo Final
+15
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 09 Diagnóstico de un proyecto
+Mostrar evaluación finalizada, índice, cobertura y principales áreas revisadas.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 10 Riesgos y evidencia
+Mostrar un hallazgo, severidad, archivo o recurso, evidencia y recomendación.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________

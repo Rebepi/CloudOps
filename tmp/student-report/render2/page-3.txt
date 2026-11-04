@@ -1,0 +1,35 @@
+Trabajo Final
+3
+Respuestas a preguntas guía
+Preguntas orientadoras propuestas para este proyecto, sujetas a validación con el instructor.
+Pregunta 01: ¿Qué necesidad resuelve CloudOps y quién utilizará la solución?
+Permite a estudiantes, desarrolladores y responsables técnicos consultar un entorno AWS y 
+planificar o evaluar una aplicación desde un mismo espacio. Organiza inventario, red, costos, 
+propuestas y riesgos para reducir la revisión fragmentada. El beneficio esperado es comprender la 
+situación y decidir qué revisar o mejorar; no se afirma una reducción de incidentes o costos sin 
+medirla.
+Pregunta 02: ¿Cómo se organiza el sistema y por qué se eligieron estas tecnologías?
+React y TypeScript implementan la interfaz; Fastify y TypeScript ofrecen la API; PostgreSQL 
+conserva los datos y Docker facilita la base de datos y los analizadores. La separación permite 
+mantener las credenciales y consultas externas en el backend. El AWS SDK usa un rol temporal de 
+auditoría. Esta arquitectura permite desarrollar y demostrar el proyecto localmente sin desplegar 
+todos sus componentes en AWS.
+Pregunta 03: ¿Cómo se integran planificación, infraestructura, servicios y costos?
+La consulta del entorno muestra recursos regionales, redes e información de la cuenta. El catálogo 
+ayuda a seleccionar servicios y consultar precios. Planificación Cloud registra requerimientos y 
+propuestas; Costos y FinOps distingue cotizaciones de la información obtenida de Cost Explorer. 
+Las propuestas pueden vincularse a proyectos. Los escenarios y simulaciones no aprovisionan 
+recursos ni constituyen pruebas reales de recuperación.
+Pregunta 04: ¿Cómo se evalúa la seguridad y se utiliza la inteligencia artificial?
+Se selecciona código, cuenta AWS o un alcance integral. Se recopilan archivos y datos autorizados; 
+los analizadores detectan secretos, problemas de código, dependencias e infraestructura declarada. 
+Los resultados conservan severidad, evidencia y límites. El índice y la cobertura representan 
+medidas distintas. Groq recibe contexto normalizado y referencias anónimas para proponer pasos 
+de mejora; una persona revisa el borrador y una nueva evaluación comprueba las correcciones.
+Pregunta 05: ¿Cómo se comprobará la calidad y la viabilidad del proyecto?
+Se verifican autenticación, persistencia, consultas AWS, separación de estimaciones, evaluación de 
+ZIP y GitHub, navegación, informes y revisión de IA. Se aprovechan las pruebas automatizadas y la 
+línea base documentada, además de una demostración funcional de todos los módulos. Se 
+consideran permisos, costos de proveedores, disponibilidad de Docker y límites de los analizadores. 
+La puesta en producción requiere validaciones adicionales de autorización, operación y 
+escalabilidad.

@@ -1,0 +1,13 @@
+Trabajo Final
+14
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 07 Planificación Cloud
+Mostrar requerimientos y una propuesta guardada con su estimación.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 08 Portafolio y nueva evaluación
+Mostrar proyecto, origen ZIP/GitHub y opciones de alcance de análisis.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________

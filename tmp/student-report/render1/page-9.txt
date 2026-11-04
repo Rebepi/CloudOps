@@ -1,0 +1,10 @@
+Trabajo Final
+9
+DIBUJO / ESQUEMA / DIAGRAMA DE PROPUESTA
+Arquitectura general de CloudOps
+La interfaz consulta la API; esta mantiene la persistencia y controla el acceso a las fuentes externas. Los 
+recursos AWS pertenecen a la cuenta auditada. La aplicación local y la infraestructura observada son 
+ámbitos distintos.
+Tema Integrantes Escala
+CloudOps Ramos Gonzales Diego / Renzo Bendezu Pinaud Esquema sin 
+escala

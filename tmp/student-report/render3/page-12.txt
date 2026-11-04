@@ -1,0 +1,13 @@
+Trabajo Final
+12
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 03 Red y VPC
+Mostrar una VPC, subredes o rutas y sus reglas de Security Groups.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 04 Centro de Seguridad
+Mostrar identidades o un control consultado, su fuente y resultado.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________

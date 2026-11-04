@@ -1,0 +1,32 @@
+Trabajo Final
+18
+5. CONTROLAR
+Verificar el cumplimiento de los procesos desarrollados en la propuesta de solución del 
+caso práctico.
+Control de la entrega actual. Las marcas pendientes requieren validación del equipo antes de la 
+sustentación; no se confunden con resultados de pruebas del software.
+EVIDENCIAS CUMPLE NO 
+CUMPLE
+¿Se identificó claramente la problemática del caso práctico? X
+¿Se desarrolló las condiciones de los requerimientos solicitados? X
+¿Se formularon respuestas claras y fundamentadas a todas las preguntas 
+guía? Validar
+¿Se elaboró un cronograma claro de actividades a ejecutar? X
+¿Se identificaron y listaron los recursos necesarios para ejecutar la 
+propuesta? X
+¿Se ejecutó la propuesta de acuerdo con la planificación y cronograma 
+establecidos? Validar
+¿Se describieron todas las operaciones y pasos seguidos para garantizar 
+la correcta ejecución? X
+¿Se consideran las normativas técnicas, de seguridad y medio ambiente en 
+la propuesta de solución? X
+¿La propuesta es pertinente con los requerimientos solicitados? X
+¿Se evaluó la viabilidad de la propuesta para un contexto real? X
+Comprobaciones pendientes de cierre
+Validar las preguntas orientadoras con el instructor; confirmar el cronograma realmente seguido; insertar 
+las doce capturas; y registrar la fecha y el resultado de la demostración completa. Los espacios sin captura 
+no se consideran evidencia entregada.
+Criterio de aceptación
+La entrega debe permitir recorrer los ocho módulos, identificar la fuente de cada resultado y guardar o 
+exportar la información correspondiente. Un servicio no habilitado o sin permisos debe mostrarse como 
+limitado; nunca como una comprobación satisfactoria.

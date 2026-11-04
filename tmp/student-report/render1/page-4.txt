@@ -1,0 +1,36 @@
+Trabajo Final
+4
+2. PLANIFICACIÓN DEL TRABAJO
+Cronograma de actividades
+Plan de referencia de seis semanas para organizar la entrega. Las fechas y el cumplimiento se registrarán 
+en la bitácora del equipo.
+N° ACTIVIDADES
+CRONOGRAMA
+S1 S2 S3 S4 S5 S6
+1 Requerimientos y alcance X
+2 Arquitectura, datos y entorno X X
+3 AWS, inventario, red y seguridad X X
+4 Servicios, planificación y costos X X
+5 Evaluaciones, evidencias e IA X X
+6 Pruebas, capturas y sustentación X X
+Responsables propuestos: Diego y Renzo participan en el diseño, desarrollo, revisión cruzada y 
+demostración. La distribución final se acuerda en el equipo.
+Lista de recursos necesarios
+1. MÁQUINAS Y EQUIPOS
+Descripción Cantidad
+Equipos de desarrollo con virtualización 2 previstos
+Acceso a red y router 1 conexión
+Almacenamiento para código y respaldos Según equipo
+Monitor y periféricos de trabajo Por integrante
+2. HERRAMIENTAS E INSTRUMENTOS
+Descripción Cantidad
+Node.js, npm, Git y editor de código
+1 
+entorno/equip
+o
+Docker Desktop, Compose y PostgreSQL 1 entorno 
+local
+AWS CLI y cuenta con rol de auditoría 1 cuenta 
+autorizada
+OSV, Semgrep, Gitleaks, Trivy y Groq Según 
+análisis

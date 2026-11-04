@@ -1,0 +1,62 @@
+Trabajo Final
+6
+4. EJECUTAR
+Resolver el caso práctico y fundamentar las operaciones con los conocimientos del curso. Se consideran 
+calidad, seguridad, higiene industrial y medio ambiente.
+Aplicamos programación web, APIs, persistencia relacional, redes, identidad AWS y estimación cloud. La 
+siguiente secuencia describe el procedimiento de implementación y demostración.
+OPERACIONES / PASOS / SUBPASOS
+NORMAS TÉCNICAS -
+ESTANDARES / SEGURIDAD / 
+MEDIO AMBIENTE 
+1. Definir el alcance. Identificar usuarios, módulos y fuentes; 
+distinguir consulta, planificación y evaluación.
+Calidad: requerimientos 
+verificables y criterios de 
+aceptación.
+2. Preparar el entorno. Instalar dependencias, iniciar PostgreSQL 
+con Compose, aplicar migraciones y levantar API e interfaz.
+Reproducibilidad: versiones y 
+archivos de bloqueo; respaldo 
+previo de datos.
+3. Configurar autenticación. Validar inicio de sesión y acceso a las 
+funciones protegidas.
+Credenciales locales separadas 
+de AWS; secretos fuera del 
+repositorio.
+4. Configurar AWS. Utilizar una identidad autorizada y asumir el 
+rol temporal de auditoría.
+Mínimo privilegio; no usar root 
+como identidad de auditoría.
+5. Integrar Dashboard. Consultar identidad, inventario, actividad y 
+costo disponibles.
+Identificar fuente, fecha y errores; 
+no sustituir fallos por resultados 
+ficticios.
+6. Construir Infraestructura. Consultar regiones, zonas e inventario 
+del alcance elegido.
+Diferenciar recursos observados 
+y simulación visual de 
+recuperación.
+7. Incorporar Red y VPC. Presentar subredes, rutas, gateways y 
+reglas de seguridad.
+Lectura autorizada y revisión de 
+exposición; no modificar la red 
+durante la demostración.
+8. Desarrollar Centro de Seguridad. Consultar identidades, 
+controles y registros; probar simulación de políticas.
+La simulación IAM no concede 
+permisos ni acredita por sí sola 
+acceso efectivo.
+9. Integrar catálogo y precios. Consultar servicios y ofertas por 
+configuración/región.
+Registrar contexto del precio; no 
+presentarlo como factura 
+contractual.
+10. Implementar Planificación y FinOps. Capturar requerimientos, 
+estimar ítems, guardar propuestas y consultar gastos.
+Separar cotización de Cost 
+Explorer; controlar uso y 
+presupuesto de servicios.
+Las pautas de calidad, seguridad y ambiente orientan la práctica. Este trabajo no declara una certificación 
+normativa ni una auditoría de cumplimiento legal.

@@ -1,0 +1,13 @@
+Trabajo Final
+16
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 11 Estructura y componentes
+Mostrar árbol de archivos, tecnologías o dependencias de la evaluación.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 12 Plan de mejora e informe
+Mostrar una acción de IA con evidencia y revisión; adjuntar vista de exportación si corresponde.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________

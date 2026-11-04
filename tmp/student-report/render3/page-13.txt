@@ -1,0 +1,13 @@
+Trabajo Final
+13
+Evidencias visuales de la solución
+Insertar capturas propias de la demostración. Conservar legibilidad y ocultar credenciales, tokens o 
+información sensible.
+Captura 05 Costos y FinOps
+Mostrar cotización y presupuesto; distinguirlos del gasto de Cost Explorer.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
+Captura 06 Servicios AWS
+Mostrar catálogo y una oferta con región y configuración del precio.
+ESPACIO PARA INSERTAR CAPTURA
+Fecha: ____________________ Resultado observado: __________________________
