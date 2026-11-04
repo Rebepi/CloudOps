@@ -1,0 +1,26 @@
+/* Shared visual language for the project analysis workspace. */
+:root {
+  --project-radius-panel: 24px;
+  --project-radius-surface: 16px;
+  --project-radius-control: 12px;
+  --project-radius-pill: 999px;
+  --project-danger: #e11d48;
+  --project-high: #c2410c;
+  --project-warning: #a16207;
+  --project-ok: #047857;
+  --project-focus-color: #1d4ed8;
+  --project-ai: #7c3aed;
+  --project-fail-fill: #f43f5e;
+  --project-partial-fill: #f59e0b;
+  --project-pass-fill: #10b981;
+  --project-panel-shadow: 0 1px 3px rgba(15,23,42,.04), 0 6px 16px rgba(15,23,42,.04);
+}
+.dark {
+  --project-danger: #ff2858;
+  --project-high: #fb923c;
+  --project-warning: #fbbf24;
+  --project-ok: #10d99b;
+  --project-focus-color: #60a5fa;
+  --project-ai: #a78bfa;
+  --project-panel-shadow: 0 2px 10px rgba(0,0,0,.08);
+}

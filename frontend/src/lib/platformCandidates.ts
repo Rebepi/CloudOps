@@ -1,7 +1,7 @@
-export type ArchitectureComponent = { id: string; name: string; category: string; confidence: string; evidence: string[] };
+export type ArchitectureComponent = { id: string; name: string; category: string; confidence: string; evidence: string[]; evidenceDetails?: Array<{ path: string; kind: 'manifest' | 'configuration' | 'source' | 'reference' }> };
 type PlatformCandidate = { service: string; purpose: string; basedOn: string; evidence: string[] };
 export function platformCandidates(components: ArchitectureComponent[]): PlatformCandidate[] {
-  const byId = new Map(components.map((component) => [component.id, component]));
+  const byId = new Map(components.filter((component) => !component.evidenceDetails || component.evidenceDetails.some((item) => item.kind !== 'reference')).map((component) => [component.id, component]));
   const candidates: PlatformCandidate[] = [];
   const add = (ids: string[], service: string, purpose: string) => {
     const basis = ids.map((id) => byId.get(id)).find(Boolean);

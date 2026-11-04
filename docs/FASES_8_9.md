@@ -1,6 +1,14 @@
+## Actualización de interfaz del 4 de noviembre de 2026: Plan de mejora
+
+La navegación vigente es Diagnóstico / Riesgos / Proyecto / Plan de mejora. El asesor se organiza como lista y detalle de acciones, decisiones AWS y comprobaciones pendientes. El contrato `2026.11.advice5` incorpora pasos/evidencia esperada, condiciones previas, títulos e IDs, dependencias propuestas sin ciclos y criterios para conservar la arquitectura actual. Se conservan autenticación, revisión humana y exclusión de textos desactualizados/no aprobados en informes. No hay nuevas migraciones ni cambios de puntuación.
+
+Prueba real con Groq 120B sobre la integral SalesIA guardada: cinco acciones, una alternativa AWS y seis comprobaciones; evaluación intacta. El contexto seleccionado es 40 de 390 pendientes (350 omitidos), visible al usuario. Borrador `df29df6e-c282-41a9-8e05-044617d5f29e` pendiente de revisión, sin aprobación automática. Ver REDISENO_EXPERIENCIA_SEGURIDAD.md para detalle. Validación de esta entrega: 156 pruebas backend, 69 frontend, compilaciones/lint y Chrome oculto ambos temas a 1440/390 sin errores o desbordamiento. Los límites del motor descritos en esta guía permanecen.
+
+---
+
 # Fases 8 y 9: entrega y validación
 
-> Organización vigente de la interfaz y contexto IA ampliado: [REDISENO_EXPERIENCIA_SEGURIDAD.md](REDISENO_EXPERIENCIA_SEGURIDAD.md). Las secciones de organización de cuatro pestañas y modelo 20B que siguen conservan el historial de esta entrega; el rediseño posterior usa siete secciones y el modelo configurado 120B.
+> Organización vigente de la interfaz y contexto IA ampliado: [REDISENO_EXPERIENCIA_SEGURIDAD.md](REDISENO_EXPERIENCIA_SEGURIDAD.md). Las secciones de organización de cuatro pestañas y modelo 20B que siguen conservan el historial de esta entrega; el rediseño posterior usa el modelo configurado 120B. La reorganización del 3 de noviembre reduce la navegación a Diagnóstico, Riesgos, Proyecto y Plan de mejora; los recorridos anteriores se conservan aquí como historial.
 
 Fecha: 28 de octubre de 2026. Motor `1.10.0`; metodología AWS `2026.14`, código/integral `2026.19`. El puntaje global conserva la fórmula existente. La prioridad de remediación y Groq no intervienen en ella.
 

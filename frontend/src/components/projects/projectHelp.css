@@ -1,0 +1,22 @@
+@import './projectTheme.css';
+.project-help-trigger { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; flex-shrink: 0; gap: 6px; width: 28px; min-height: 28px; margin-left: 6px; border-radius: 50%; border: 1px solid transparent; color: var(--color-muted); cursor: pointer; transition: background-color 160ms, color 160ms; }
+.project-help-trigger:hover, .project-help-trigger[aria-expanded="true"] { color: var(--color-brand); background: color-mix(in srgb,var(--color-brand) 10%,transparent); border-color: color-mix(in srgb,var(--color-brand) 20%,transparent); }
+.project-help-with-label { width: auto; margin-left: 0; padding: 4px 6px 4px 0; border-radius: var(--project-radius-control); font-size: 12px; font-weight: 500; }
+.project-help-trigger:focus-visible, .project-help-popover button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.project-help-popover { position: fixed; z-index: 1000; visibility: hidden; display: flex; flex-direction: column; width: min(380px,calc(100vw - 24px)); max-height: calc(100dvh - 24px); border: 1px solid var(--color-line-2); border-radius: var(--project-radius-surface); background: var(--color-card); color: var(--color-ink); padding: 16px; box-shadow: 0 10px 36px rgba(2,6,23,.2); animation: project-help-appear 120ms ease-out; }
+.project-help-popover::before { content: ''; position: absolute; left: calc(var(--help-arrow-left) - 5px); width: 10px; height: 10px; background: var(--color-card); transform: rotate(45deg); }
+.project-help-popover[data-placement="below"]::before { top: -6px; border-left: 1px solid var(--color-line-2); border-top: 1px solid var(--color-line-2); }
+.project-help-popover[data-placement="above"]::before { bottom: -6px; border-right: 1px solid var(--color-line-2); border-bottom: 1px solid var(--color-line-2); }
+.project-help-popover header { display: flex; align-items: flex-start; gap: 8px; flex-shrink: 0; margin-bottom: 10px; }
+.project-help-popover header > svg { color: var(--color-brand); flex-shrink: 0; margin-top: 5px; }
+.project-help-popover h2 { font-size: 14px; line-height: 1.5; font-weight: 700; margin: 3px 0 0; letter-spacing: -.015em; }
+.project-help-popover header > button { display: grid; place-items: center; flex-shrink: 0; min-width: 28px; height: 28px; margin-left: auto; border-radius: 50%; color: var(--color-muted); cursor: pointer; }
+.project-help-popover header > button:hover { background: var(--color-canvas); color: var(--color-ink); }
+.project-help-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: 12px; line-height: 1.75; color: var(--color-ink-2); overflow-wrap: anywhere; }
+.project-help-body p { margin: 0 0 10px; }
+.project-help-body p:last-child { margin-bottom: 0; }
+.project-help-body ul { padding-left: 18px; margin: 10px 0; }
+.project-help-body li + li { margin-top: 6px; }
+@keyframes project-help-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (pointer: coarse) { .project-help-trigger { min-width: 44px; min-height: 44px; } .project-help-popover button { min-height: 44px; min-width: 44px; } }
+@media (prefers-reduced-motion: reduce) { .project-help-trigger { transition: none; } .project-help-popover { animation: none; } }

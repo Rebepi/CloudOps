@@ -53,3 +53,21 @@ it('permite subir un ZIP al evaluar un proyecto existente sin repositorio', asyn
     expect(onRun).toHaveBeenCalledWith('code', archive);
   } finally { await act(async () => root.unmount()); }
 });
+it('código con revisión AWS conserva el alcance integral y exige conexión disponible', async () => {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const onRun = vi.fn();
+  try {
+    await act(async () => root.render(<NewAssessmentModal hasRepo awsReady={false} busy={false} onClose={() => {}} onRun={onRun} />));
+    const checkbox = document.body.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => checkbox.click());
+    const start = [...document.body.querySelectorAll('button')].find((button) => button.textContent?.includes('Iniciar evaluación'))!;
+    expect(start.disabled).toBe(true);
+    expect(document.body.textContent).toContain('Contrastar dependencias');
+    expect(document.body.textContent).toContain('Consultar recursos AWS');
+    await act(async () => root.render(<NewAssessmentModal hasRepo awsReady busy={false} onClose={() => {}} onRun={onRun} />));
+    expect(start.disabled).toBe(false);
+    await act(async () => start.click());
+    expect(onRun).toHaveBeenCalledWith('full');
+  } finally { await act(async () => root.unmount()); }
+});

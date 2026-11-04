@@ -305,12 +305,10 @@ export function TechIcon({ name, size = 20, className = '', showBadge = false }:
     );
   }
 
-  // Default Fallback
+  // Neutral component symbol; unknown technology is not an image placeholder.
   return wrap(
-    <g stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
-      <rect x="3" y="3" width="18" height="18" rx="3" />
-      <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-      <polyline points="21 15 16 10 5 21" />
+    <g stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none">
+      <path d="M12 2 21 7v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10" />
     </g>,
     'rgba(148, 163, 184, 0.12)'
   );

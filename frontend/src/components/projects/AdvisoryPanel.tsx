@@ -1,50 +1,60 @@
+import { ProjectHelp } from './ProjectHelp';
 import { useCallback, useEffect, useState } from 'react';
-import { BrainCircuit, Download, LoaderCircle } from 'lucide-react';
+import { ArrowRight, BrainCircuit, CheckCircle2, Cloud, Download, ListChecks, LoaderCircle, Radar, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AWSArchitectureOptions } from './ArchitectureWorkspace';
 import { AdvicePlan } from './AdvicePlan';
 import { api } from '../../lib/api';
 import type { AssessmentAdvice, ComparacionEvaluacion, EvaluacionSeguridad } from '../../types/cloud';
+import './diagnostic.css';
+import './improvement.css';
 
-export function AdvisoryPanel({ assessment, comparison, onNavigateToFinding }: { assessment: EvaluacionSeguridad; comparison?: ComparacionEvaluacion | null; onNavigateToFinding?: (id: string) => void }) {
+type Context = { selectedFindings: number; actionableFindings: number; omittedActionableFindings: number; totalObservations: number };
+export function AdvisoryPanel({ assessment, comparison, onNavigateToFinding, showExport = true }: { showExport?: boolean; assessment: EvaluacionSeguridad; comparison?: ComparacionEvaluacion | null; onNavigateToFinding?: (id: string) => void }) {
   const [advice, setAdvice] = useState<AssessmentAdvice | null>(null);
+  const [context, setContext] = useState<Context | null>(null);
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'' | 'generate' | 'review'>('');
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [note, setNote] = useState('');
   const base = `/projects/${assessment.projectId}/security/assessments/${assessment.id}`;
   const load = useCallback(async () => {
-    const result = await api<{ data: AssessmentAdvice | null; configured: boolean }>(`${base}/advice`);
-    setAdvice(result.data); setConfigured(result.configured);
+    const result = await api<{ data: AssessmentAdvice | null; configured: boolean; context?: Context }>(`${base}/advice`);
+    setAdvice(result.data); setConfigured(result.configured); setContext(result.context ?? null); setLoadFailed(false);
   }, [base]);
-  useEffect(() => { void load().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setLoading(false)); }, [load]);
+  const reload = async () => { setLoading(true); setError(''); try { await load(); } catch (cause) { setLoadFailed(true); setError(cause instanceof Error ? cause.message : String(cause)); } finally { setLoading(false); } };
+  useEffect(() => { void load().catch((cause) => { setLoadFailed(true); setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => setLoading(false)); }, [load]);
   const generate = async () => {
-    setBusy(true); setError('');
-    try { await api(`${base}/advice`, { method: 'POST' }); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); }
+    setBusy('generate'); setError('');
+    try { await api(`${base}/advice`, { method: 'POST' }); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(''); }
   };
   const review = async (state: 'approved' | 'rejected') => {
-    if (!advice) return;
-    setBusy(true); setError('');
-    try { await api(`${base}/advice/${advice.id}`, { method: 'PATCH', body: JSON.stringify({ state, note }) }); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); }
+    if (!advice || note.trim().length < 10) return;
+    setBusy('review'); setError('');
+    try { await api(`${base}/advice/${advice.id}`, { method: 'PATCH', body: JSON.stringify({ state, note }) }); await load(); setNote(''); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(''); }
   };
   const download = async () => {
     setError('');
-    try {
-      const report = await api(`${base}/report`);
-      const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `cloudops-${assessment.id}-technical.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    try { const report = await api(`${base}/report`); const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `cloudops-${assessment.id}-technical.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };
-  return <section className="mt-5 border-t border-line pt-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="flex items-center gap-2 text-sm font-bold text-ink"><BrainCircuit size={18} className="text-violet-600 dark:text-violet-400" />Plan de acción basado en evidencia</h2><button onClick={() => void download()} className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400"><Download size={14} />Descargar reporte técnico JSON</button></div>
-    <p className="mt-2 text-xs text-muted">Groq utiliza controles, avisos públicos de vulnerabilidad, versiones y tecnologías detectadas con referencias anónimas. No se envían código, rutas, cuentas ni valores secretos. Revisa sus propuestas antes de publicarlas.</p>
-    {comparison?.dimensions && <details className="mt-4"><summary className="cursor-pointer text-xs font-bold text-ink">Comparación por dimensión</summary><div className="mt-2 overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="text-muted"><th className="py-2">Dimensión</th><th>Puntaje anterior / actual</th><th>Variación</th><th>Cobertura anterior / actual</th></tr></thead><tbody>{comparison.dimensions.map((dimension) => <tr key={dimension.id} className="border-t border-line"><td className="py-2 text-ink">{dimension.label}</td><td className="text-muted">{dimension.previousScore ?? '—'} / {dimension.currentScore ?? '—'}</td><td className="text-blue-600 dark:text-blue-400">{dimension.scoreDelta ?? 'No comparable'}</td><td className="text-muted">{dimension.previousCoverage ?? '—'}% / {dimension.currentCoverage}%</td></tr>)}</tbody></table></div></details>}
-    {error && <p role="alert" className="mt-3 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
-    {advice && <div className="mt-4 space-y-3 text-xs"><AdvicePlan key={advice.id} advice={advice} onFinding={onNavigateToFinding} />
-      {advice.state === 'draft' && !advice.stale && <div className="border-t border-line pt-3"><label className="text-xs text-muted">Justificación de revisión humana<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Contrasta el texto con la evidencia y documenta tu revisión (mínimo 10 caracteres)." className="mt-2 block w-full rounded-xl border border-line bg-canvas p-3 text-xs text-ink" /></label><div className="mt-3 flex gap-3"><button disabled={busy || note.trim().length < 10} onClick={() => void review('approved')} className="rounded-xl bg-blue-600 px-3 py-2 font-bold text-white disabled:opacity-40">Aprobar para informes</button><button disabled={busy || note.trim().length < 10} onClick={() => void review('rejected')} className="text-rose-600 dark:text-rose-400 disabled:opacity-40">Rechazar borrador</button></div></div>}
-      {advice.reviewNote && <p className="text-muted">Revisión: {advice.reviewNote} · {advice.reviewedAt ? new Date(advice.reviewedAt).toLocaleString('es-PE') : ''}</p>}
-    </div>}
-    {!loading && !error && (!advice || advice.stale || advice.state === 'rejected') && <button disabled={busy || !configured} onClick={() => void generate()} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <BrainCircuit size={14} />}{configured ? 'Generar plan de corrección y arquitectura' : 'Configura Groq en el backend'}</button>}
-    {loading && <p role="status" className="mt-3 text-xs text-muted">Consultando el borrador guardado…</p>}
-    {busy && <p role="status" className="mt-2 text-xs text-muted">Procesando solicitud… Los resultados de seguridad se conservan.</p>}
+  const current = advice && !advice.stale && advice.state !== 'rejected';
+  const canGenerate = !loading && !loadFailed && !current;
+  const uniqueRefs = current ? new Set(advice.content.priorities.flatMap((item) => item.findingRefs.map((ref) => advice.content.references?.[ref]).filter(Boolean))).size : 0;
+  return <section className="improvement-workspace" aria-label="Plan de mejora">
+    <header className="improvement-heading"><div><span className="improvement-heading-icon"><BrainCircuit size={22} aria-hidden="true" /></span><div><h2>Plan de mejora<ProjectHelp topic="plan" /></h2><p>De la evidencia a un orden de trabajo, con pasos y criterios para comprobar cada cambio.</p></div></div><div className="improvement-heading-actions">{current && <span className="plan-state" data-state={advice.state}>{advice.state === 'approved' ? <ShieldCheck size={15} aria-hidden="true" /> : <ListChecks size={15} aria-hidden="true" />}{advice.state === 'approved' ? 'Aprobado para informes' : 'Borrador para revisión'}</span>}{canGenerate && <button type="button" onClick={() => void generate()} disabled={!!busy || !configured} className="diagnostic-primary">{busy === 'generate' ? <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <BrainCircuit size={16} aria-hidden="true" />}{advice ? 'Actualizar plan con IA' : 'Generar plan con IA'}</button>}</div></header>
+    {loading && <p role="status" className="plan-loading"><LoaderCircle size={17} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Consultando el plan de esta evaluación…</p>}
+    {context && <div className="plan-context-strip"><ProjectHelp topic="sample" label="Alcance de la IA" /><span><strong>{context.selectedFindings}</strong> hallazgos seleccionados para la IA</span><span><strong>{context.actionableFindings}</strong> pendientes en la evaluación</span>{context.omittedActionableFindings > 0 && <span className="plan-context-gap"><strong>{context.omittedActionableFindings}</strong> fuera del contexto</span>}{current && <span><strong>{uniqueRefs}</strong> vinculados a correcciones propuestas</span>}</div>}
+    {busy && <p role="status" className="plan-processing"><LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{busy === 'generate' ? 'Generando acciones, secuencia y criterios con la evidencia seleccionada…' : 'Registrando la revisión humana…'} No se ejecutan cambios en el proyecto.</p>}
+    {error && <div role="alert" className="plan-api-error"><p>{error}</p>{loadFailed && <button type="button" className="plan-text-button" onClick={() => void reload()}><RefreshCw size={14} aria-hidden="true" />Reintentar consulta</button>}</div>}
+    {!loading && !loadFailed && !configured && <p className="plan-muted">El servicio de IA no está disponible en este entorno. El diagnóstico y los hallazgos se conservan.</p>}
+    {!loading && !loadFailed && !current && <div className="plan-start"><div><span className="plan-start-symbol"><BrainCircuit size={32} aria-hidden="true" /></span><h3>{advice?.stale ? 'La evidencia o el método cambiaron' : advice?.state === 'rejected' ? 'El borrador anterior fue rechazado' : 'Convierte el diagnóstico en un plan de trabajo'}</h3><p>{advice?.stale ? 'El plan anterior se conserva como histórico y queda fuera de los informes vigentes. Genera una propuesta con el contexto actual.' : 'La IA organiza los problemas observados en acciones concretas, identifica condiciones previas y explica cómo comprobar el resultado.'}</p></div><ul><li><ListChecks size={19} aria-hidden="true" /><div><strong>Correcciones con pasos</strong><span>Qué atender, quién podría hacerlo y qué evidencia esperar.</span></div></li><li><Cloud size={19} aria-hidden="true" /><div><strong>Decisiones de arquitectura</strong><span>Alternativas AWS, contrapartidas y cuándo conservar lo existente.</span></div></li><li><Radar size={19} aria-hidden="true" /><div><strong>Completar las pruebas</strong><span>Qué falta por verificar y qué resultado permitiría avanzar.</span></div></li></ul></div>}
+    {context && context.omittedActionableFindings > 0 && <p className="plan-sampling-note">El asesor recibe una muestra priorizada y diversa de hasta 40 hallazgos. El plan no cubre automáticamente todos los riesgos; el listado completo permanece en Riesgos.</p>}
+    {current && <><AdvicePlan key={advice.id} advice={advice} assessment={assessment} onFinding={onNavigateToFinding} />
+      {advice.state === 'draft' && <details className="plan-review"><summary><CheckCircle2 size={17} aria-hidden="true" />Revisar la propuesta antes de incluirla en informes<ArrowRight size={15} aria-hidden="true" /></summary><p>Contrasta las acciones, su orden y las alternativas con la evidencia. La aprobación registra una revisión humana; no acredita implementación ni seguridad.</p><label>Justificación de revisión humana<textarea value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Documenta lo que contrastaste y los límites de tu revisión (mínimo 10 caracteres)." /></label><div><button type="button" disabled={!!busy || note.trim().length < 10} onClick={() => void review('approved')} className="diagnostic-primary">Aprobar para informes</button><button type="button" disabled={!!busy || note.trim().length < 10} onClick={() => void review('rejected')} className="diagnostic-secondary">Rechazar borrador</button></div></details>}
+      {advice.reviewNote && <p className="plan-review-note">Revisión registrada: {advice.reviewNote}{advice.reviewedAt ? ` · ${new Date(advice.reviewedAt).toLocaleString('es-PE')}` : ''}</p>}
+    </>}
+    {!loading && !loadFailed && (!current || !advice.content.architecture?.length) && <details className="plan-catalog"><summary><Cloud size={16} aria-hidden="true" />Explorar alternativas del catálogo tecnológico</summary><p className="plan-muted">Estas opciones parten de detecciones del proyecto; no son un plan generado por IA ni una confirmación de migración.</p><AWSArchitectureOptions assessment={assessment} /></details>}
+    <div className="plan-privacy"><ProjectHelp topic="privacy" label="Cómo se construye el plan y qué datos recibe la IA" />{advice && <p>Modelo: {advice.model} · Contexto: {advice.promptVersion} · Generado: {new Date(advice.createdAt).toLocaleString('es-PE')}</p>}{showExport && <button type="button" onClick={() => void download()} className="plan-text-button"><Download size={14} aria-hidden="true" />Descargar reporte técnico JSON</button>}{comparison?.dimensions && <p>La comparación de dimensiones se consulta en el historial de evaluaciones; solo tiene sentido entre métodos compatibles.</p>}</div>
   </section>;
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Cloud, Code2, GitBranch, KeyRound, Layers3, LoaderCircle, PackageSearch, Play, ScanSearch, ShieldCheck } from 'lucide-react';
+import { Cloud, Code2, GitBranch, KeyRound, LoaderCircle, PackageSearch, Play, ScanSearch, ShieldCheck } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { FileDropZone } from '../ui/FileDropZone';
 
@@ -14,15 +14,15 @@ export function NewAssessmentModal({ onClose, onRun, hasRepo, awsReady, awsReaso
   const options = [
     { id: 'code' as const, title: hasRepo ? 'Código del repositorio' : 'Código de ZIP', Icon: Code2, detail: hasRepo ? 'Archivos del commit actual: backend, frontend y configuración.' : 'Sube un ZIP con backend, frontend y configuración para analizarlo.' },
     { id: 'aws' as const, title: 'Cuenta AWS', Icon: Cloud, detail: 'Recursos y controles de la cuenta y región conectadas.' },
-    { id: 'full' as const, title: 'Evaluación integral', Icon: Layers3, detail: 'Código y cuenta AWS en una evaluación combinada.' },
   ];
   const code = scope !== 'aws';
   const aws = scope !== 'code';
   const reason = code && !hasRepo && !archive ? 'Selecciona el archivo ZIP que quieres evaluar.'
     : code && archive && (!archive.name.toLowerCase().endsWith('.zip') || archive.size > 100 * 1024 * 1024) ? 'Selecciona un ZIP de hasta 100 MB.'
       : aws && !awsReady ? awsReason || 'Configura una conexión AWS con un rol de auditoría válido.' : '';
-  return createPortal(<Modal abierto onCerrar={onClose} titulo="Nueva evaluación" subtitulo="Selecciona el alcance, revisa las comprobaciones y ejecuta el análisis." tamano="xl">
-    <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de evaluación">{options.map(({ id, title, Icon, detail }) => <button key={id} type="button" role="radio" aria-checked={scope === id} onClick={() => setScope(id)} className={`rounded-xl border p-4 text-left cursor-pointer ${scope === id ? 'border-blue-500 bg-blue-500/10' : 'border-line hover:bg-canvas'}`}><Icon size={24} className="mb-3 text-blue-400" /><strong className="block text-sm text-ink">{title}</strong><p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p></button>)}</div>
+  return createPortal(<Modal abierto onCerrar={onClose} titulo="Nueva evaluación" subtitulo="Elige la fuente, confirma las comprobaciones e inicia una única evaluación." tamano="xl">
+    <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Tipo de evaluación">{options.map(({ id, title, Icon, detail }) => <button key={id} type="button" role="radio" aria-checked={id === 'code' ? scope !== 'aws' : scope === 'aws'} onClick={() => setScope(id)} className={`rounded-xl border p-4 text-left cursor-pointer ${(id === 'code' ? scope !== 'aws' : scope === 'aws') ? 'border-blue-500 bg-blue-500/10' : 'border-line hover:bg-canvas'}`}><Icon size={24} className="mb-3 text-blue-400" /><strong className="block text-sm text-ink">{title}</strong><p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p></button>)}</div>
+    {code && <label className="mt-4 flex items-start gap-3 rounded-xl border border-line p-3 text-xs text-ink"><input type="checkbox" checked={scope === 'full'} onChange={(event) => setScope(event.target.checked ? 'full' : 'code')} /><span><strong>Añadir revisión de la cuenta AWS</strong><span className="mt-1 block text-muted">Combina ambas fuentes. Los recursos de la cuenta no se atribuyen automáticamente al código. Requiere conexión y permisos de auditoría.</span></span></label>}
     {code && !hasRepo && <FileDropZone onFile={(file) => { setArchive(file); setDropError(''); }} onError={setDropError} disabled={busy}><label className="mt-4 block rounded-xl border border-dashed border-violet-500/40 p-4 text-xs font-semibold text-ink">Selecciona o arrastra un ZIP (hasta 100 MB)<input aria-label="Archivo ZIP para evaluar" type="file" accept=".zip,application/zip" onChange={(event) => { setArchive(event.target.files?.[0]); setDropError(''); }} className="mt-2 block w-full text-xs text-muted" />{archive && <span className="mt-2 block text-violet-400">{archive.name}</span>}</label></FileDropZone>}
     {dropError && <p role="alert" className="mt-2 text-xs text-rose-400">{dropError}</p>}
     <div className="mt-5 border-y border-line py-4"><h4 className="text-xs font-bold uppercase tracking-wider text-muted">Acciones de esta evaluación</h4><ul className="mt-3 grid gap-4 sm:grid-cols-2">

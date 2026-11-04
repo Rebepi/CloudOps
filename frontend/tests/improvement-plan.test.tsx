@@ -1,0 +1,52 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, expect, it, vi } from 'vitest';
+import { AdvicePlan } from '../src/components/projects/AdvicePlan';
+import { AdvisoryPanel } from '../src/components/projects/AdvisoryPanel';
+import { api } from '../src/lib/api';
+import type { AssessmentAdvice, EvaluacionSeguridad } from '../src/types/cloud';
+Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
+vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
+const assessment = { id: 'a', projectId: 'p', findings: [{ id: 'root', title: 'Clave raíz observada', status: 'open' }], summary: {} } as unknown as EvaluacionSeguridad;
+const action = { id: 'A1', title: 'Retirar clave raíz', action: 'Coordinar retiro con el responsable.', explanation: 'Se observó una clave permanente.', owner: 'Seguridad', urgency: 'immediate', verification: 'Comprobar el resumen IAM.', prerequisites: ['Validar acceso alternativo.'], dependsOn: [], steps: [{ instruction: 'Probar acceso con un rol.', expectedEvidence: 'Acceso alternativo comprobado.' }, { instruction: 'Solicitar retiro de la clave.', expectedEvidence: 'Resumen IAM sin clave.' }], findingRefs: ['F1'] };
+const advice = { id: 'd', state: 'draft', model: 'test', provider: 'groq', createdAt: '2026-11-04', promptVersion: '2026.11.advice5', content: { summary: 'Plan basado en evidencia.', priorities: [action, { ...action, id: 'A2', title: 'Revisar permisos', dependsOn: ['A1'] }], references: { F1: 'root' }, architecture: [{ serviceKey: 'postgres', componentRefs: ['postgresql'], rationale: 'PostgreSQL detectado.', tradeoff: 'Validar costos.', verification: 'Restauración probada.', keepCurrent: 'Si la operación actual cumple los requisitos.', requirements: ['Inventariar extensiones.'], migrationSteps: ['Ensayar restauración.'] }], nextChecks: [{ dimension: 'detection', action: 'Obtener inventario de logs.', reason: 'Fuente incompleta.', expectedEvidence: 'Lista de trails y estado.' }], limitations: ['Muestra limitada.'] } } as unknown as AssessmentAdvice;
+const container = document.createElement('div'); let root = createRoot(container);
+afterEach(async () => { await act(async () => root.unmount()); root = createRoot(container); vi.resetAllMocks(); });
+const click = async (text: string) => act(async () => [...container.querySelectorAll('button')].find((button) => button.textContent?.includes(text))!.click());
+it('muestra una propuesta a la vez, secuencia navegable y evidencia con títulos reales', async () => {
+ const onFinding = vi.fn();
+ await act(async () => root.render(<AdvicePlan advice={advice} assessment={assessment} onFinding={onFinding} />));
+ expect(container.querySelectorAll('.plan-action-detail')).toHaveLength(1);
+ expect(container.textContent).toContain('Acceso alternativo comprobado.');
+ expect(container.textContent).toContain('Equipo sugerido: Seguridad');
+ await click('Revisar permisos');
+ expect(container.querySelector('.plan-action-detail')?.textContent).toContain('Orden sugerido');
+ await click('A1: Retirar clave raíz');
+ expect(container.querySelector('.plan-action-detail h3')?.textContent).toBe('Retirar clave raíz');
+ await click('Clave raíz observada'); expect(onFinding).toHaveBeenCalledWith('root');
+ await click('Decisiones AWS'); expect(container.querySelector('.plan-action-detail')?.textContent).toContain('Cuándo conservar la solución actual');
+ expect(container.textContent).toContain('Ensayar restauración.');
+ await click('Completar pruebas'); expect(container.querySelector('.plan-action-detail')?.textContent).toContain('Lista de trails y estado.');
+ expect(container.textContent).not.toMatch(/90%|puntaje proyectado|24-48h/);
+});
+it('separa fallos de consulta de ausencia de plan y permite reintentar', async () => {
+ vi.mocked(api).mockRejectedValueOnce(new Error('Consulta no disponible')).mockResolvedValueOnce({ data: null, configured: true });
+ await act(async () => root.render(<AdvisoryPanel assessment={assessment} />));
+ expect(container.querySelector('[role="alert"]')?.textContent).toContain('Consulta no disponible');
+ expect(container.textContent).not.toContain('Generar plan con IA');
+ await click('Reintentar consulta'); expect(container.textContent).toContain('Generar plan con IA');
+});
+it('aprobación requiere nota y conserva los estados de los hallazgos', async () => {
+ vi.mocked(api).mockResolvedValue({ data: advice, configured: true, context: { selectedFindings: 40, actionableFindings: 100, omittedActionableFindings: 60, totalObservations: 160 } });
+ await act(async () => root.render(<AdvisoryPanel assessment={assessment} />));
+ expect(container.textContent).toContain('60 fuera del contexto');
+ const approve = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Aprobar para informes')!;
+ expect(approve.disabled).toBe(true); expect(vi.mocked(api).mock.calls).toHaveLength(1);
+ expect(container.textContent).toContain('no acredita implementación ni seguridad');
+});
+it('borrador desactualizado permite actualizar y no publica sus correcciones', async () => {
+ vi.mocked(api).mockResolvedValue({ data: { ...advice, stale: true }, configured: true });
+ await act(async () => root.render(<AdvisoryPanel assessment={assessment} />));
+ expect(container.textContent).toContain('Actualizar plan con IA'); expect(container.querySelector('.plan-workbench')).toBeNull();
+ expect(container.textContent).not.toContain('Aprobar para informes');
+});

@@ -190,3 +190,18 @@ test('Compose observado no se acredita como control Trivy config evaluado', asyn
   assert.equal(evaluation.summary.iac.state, 'not_supported');
   assert.equal(evaluation.summary.iac.targetsAnalyzed, 0);
 });
+test('architecture inventory ranks declarations before mentions and retains unverified references', async (t) => {
+  const path = await archive(t, {
+    'docs/a.md': 'fastapi', 'docs/b.md': 'fastapi', 'docs/c.md': 'fastapi', 'docs/d.md': 'fastapi', 'docs/e.md': 'fastapi',
+    'backend/main.py': 'from fastapi import FastAPI',
+    'backend/scanner.ts': 'const frameworks = ["vue", "django"];',
+    'frontend/package.json': JSON.stringify({ dependencies: { react: '*' } }),
+  });
+  const evaluation = await scanZipSecurity(path, { lookupVulnerabilities: false });
+  const architecture = evaluation.summary.detectedArchitecture;
+  assert.equal(architecture.evidenceVersion, '2026.11.architecture1');
+  assert.equal(architecture.components.find((item) => item.id === 'fastapi')?.evidenceDetails?.[0]?.kind, 'source');
+  assert.equal(architecture.components.find((item) => item.id === 'react')?.evidenceDetails?.[0]?.kind, 'manifest');
+  assert.equal(architecture.components.find((item) => item.id === 'django')?.confidence, 'medium');
+  assert.equal(architecture.components.find((item) => item.id === 'vue')?.evidenceDetails?.[0]?.kind, 'reference');
+});

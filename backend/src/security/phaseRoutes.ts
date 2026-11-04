@@ -41,7 +41,8 @@ export function registerPhaseRoutes(app: FastifyInstance, deps: {
     const ctx = await context(request, reply); if (!ctx) return;
     const result = await deps.db.query(`SELECT id,provider,model,prompt_version AS "promptVersion",input_sha256 AS "inputHash",content,state,created_at AS "createdAt",reviewed_at AS "reviewedAt",review_note AS "reviewNote",reviewed_by AS "reviewedBy" FROM assessment_advice WHERE assessment_id=$1 ORDER BY created_at DESC LIMIT 1`, [ctx.assessment.id]);
     const advice = result.rows[0];
-    return { configured: Boolean(deps.groq.apiKey), data: advice ? { ...advice, stale: advice.inputHash !== advisoryInput(ctx.assessment).inputHash } : null };
+    const input = advisoryInput(ctx.assessment);
+    return { context: { selectedFindings: input.facts.findings.length, actionableFindings: input.facts.actionableFindings, omittedActionableFindings: input.facts.omittedActionableFindings, totalObservations: input.facts.totalFindings }, configured: Boolean(deps.groq.apiKey), data: advice ? { ...advice, stale: advice.inputHash !== input.inputHash } : null };
   });
 
   app.post<{ Params: Params }>(`${base}/advice`, async (request, reply) => {

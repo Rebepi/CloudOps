@@ -286,7 +286,7 @@ export interface EvaluacionSeguridad {
 export interface AssessmentAdvice {
   id: string; state: 'draft' | 'approved' | 'rejected'; stale?: boolean; provider: string; model: string; promptVersion: string;
   inputHash: string; createdAt: string; reviewedAt?: string; reviewedBy?: string; reviewNote?: string;
-  content: { summary: string; priorities: Array<{ findingRefs: string[]; explanation: string; action: string; owner?: string; verification?: string; urgency?: 'immediate' | 'planned' | 'verify' }>; architecture?: Array<{ componentRefs: string[]; serviceKey: string; rationale: string; tradeoff: string; verification: string }>; nextChecks?: Array<{ dimension: string; reason: string; action: string }>; limitations: string[]; references: Record<string, string> };
+  content: { summary: string; priorities: Array<{ findingRefs: string[]; explanation: string; action: string; owner?: string; verification?: string; urgency?: 'immediate' | 'planned' | 'verify'; id?: string; title?: string; steps?: Array<{ instruction: string; expectedEvidence: string }>; prerequisites?: string[]; dependsOn?: string[] }>; architecture?: Array<{ componentRefs: string[]; serviceKey: string; rationale: string; tradeoff: string; verification: string; keepCurrent?: string; requirements?: string[]; migrationSteps?: string[] }>; nextChecks?: Array<{ dimension: string; reason: string; action: string; expectedEvidence?: string }>; limitations: string[]; references: Record<string, string> };
 }
 
 export interface AwsConnectionStatus {

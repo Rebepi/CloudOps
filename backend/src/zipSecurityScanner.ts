@@ -1,3 +1,4 @@
+import { architectureEvidenceKind, type ArchitectureEvidenceKind } from './security/architectureEvidence.js';
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { createHash } from 'node:crypto';
 import { computeFingerprint, deduplicateByFingerprint } from './findingFingerprint.js';
@@ -37,6 +38,7 @@ export type DetectedArchitectureComponent = {
   category: 'client' | 'api' | 'data' | 'runtime' | 'delivery' | 'security' | 'observability' | 'integration';
   confidence: 'high' | 'medium';
   evidence: string[];
+  evidenceDetails?: Array<{ path: string; kind: ArchitectureEvidenceKind }>;
 };
 
 export type StaticCoverageDomain = {
@@ -204,7 +206,7 @@ export const BUILTIN_RULE_CATALOG = {
     recommendation: rule.recommendation, extensions: rule.extensions ?? null })),
 };
 
-type ComponentMatch = Omit<DetectedArchitectureComponent, 'evidence'>;
+type ComponentMatch = Omit<DetectedArchitectureComponent, 'evidence' | 'evidenceDetails'> & { evidenceKind?: ArchitectureEvidenceKind };
 
 const COMPONENT_SIGNATURES: { match: RegExp; component: ComponentMatch }[] = [
   { match: /["']react["']|from\s+["']react["']/i, component: { id: 'react', name: 'React', category: 'client', confidence: 'high' } },
@@ -242,7 +244,10 @@ function architectureComponents(fileName: string, text: string): ComponentMatch[
   if (/\.github\/workflows\/.*\.ya?ml$/.test(normalized)) components.push({ id: 'github-actions', name: 'GitHub Actions', category: 'delivery', confidence: 'high' });
   if (lowerBase === '.gitlab-ci.yml') components.push({ id: 'gitlab-ci', name: 'GitLab CI', category: 'delivery', confidence: 'high' });
   if (/nginx.*\.conf$/.test(lowerBase)) components.push({ id: 'nginx', name: 'Nginx', category: 'runtime', confidence: 'high' });
-  return components;
+  return components.map((component) => {
+    const kind = architectureEvidenceKind(fileName, text, component.id);
+    return { ...component, evidenceKind: kind, confidence: kind === 'reference' ? 'medium' as const : component.confidence };
+  });
 }
 
 export function analyzeTextFile(fileName: string, text: string, timings?: AnalyzerTimings, executions?: Record<string, number>): CodeFinding[] {
@@ -511,12 +516,12 @@ async function scanEntries(path: string, options: Required<ZipScanOptions>, timi
             for (const domain of domainsForPath(entry.fileName)) domainFiles[domain].add(entry.fileName);
             const isEvidenceFixture = /(?:^|\/)(?:tests?|__tests__|fixtures?|mocks?|interaction-tests)(?:\/|$)|(?:^|\/)[^/]*(?:test|spec)\.[^/]+$/i.test(normalized);
             for (const detected of isEvidenceFixture ? [] : architectureComponents(entry.fileName, text)) {
+              const { evidenceKind = 'reference', ...component } = detected;
               const existing = components.get(detected.id);
-              if (existing) {
-                if (!existing.evidence.includes(entry.fileName) && existing.evidence.length < 5) existing.evidence.push(entry.fileName);
-              } else {
-                components.set(detected.id, { ...detected, evidence: [entry.fileName] });
-              }
+              const details = [...(existing?.evidenceDetails ?? []), { path: entry.fileName, kind: evidenceKind }];
+              const ranks = { manifest: 0, configuration: 1, source: 2, reference: 3 };
+              const ordered = details.sort((a, b) => ranks[a.kind] - ranks[b.kind]).filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index).slice(0, 20);
+              components.set(detected.id, { ...component, confidence: ordered.some((item) => item.kind !== 'reference') ? 'high' : 'medium', evidence: ordered.slice(0, 5).map((item) => item.path), evidenceDetails: ordered });
             }
             if (findings.length < 500) findings.push(...analyzeTextFile(entry.fileName, text, timings, executions).slice(0, 500 - findings.length));
             const dependenciesStarted = performance.now();
@@ -716,6 +721,7 @@ export async function scanZipSecurity(path: string, inputOptions: ZipScanOptions
         inventoryComplete, issues: inventory.slice(0, 200), images: archive.images, trivy: { state: trivy.state, reason: trivy.reason, results: trivy.results, tool: trivy.tool } },
       extensions: archive.extensions,
       detectedArchitecture: {
+        evidenceVersion: '2026.11.architecture1',
         source: 'repository-static-evidence',
         components: archive.components,
         componentCount: archive.components.length,

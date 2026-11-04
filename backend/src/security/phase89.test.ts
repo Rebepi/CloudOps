@@ -125,3 +125,38 @@ test('generación persiste borrador y revisión atribuye al actor autenticado si
   assert.equal(JSON.stringify(assessment), original);
   assert.equal(queries.some((query) => /UPDATE security_(findings|assessments)/.test(query.sql)), false);
 });
+test('advice excludes reference-only technology from service options', () => {
+  const input = advisoryInput({ ...assessment, summary: { detectedArchitecture: { components: [
+    { id: 'react', confidence: 'medium', evidenceDetails: [{ path: 'scanner.ts', kind: 'reference' }] },
+    { id: 'postgresql', confidence: 'high', evidenceDetails: [{ path: 'compose.yaml', kind: 'configuration' }] },
+  ] } } });
+  assert.deepEqual(input.facts.technologies.map((item) => item.ref), ['postgresql']);
+  assert.doesNotMatch(JSON.stringify(input.facts), /scanner\.ts|compose\.yaml/);
+});
+
+const richPriority = { ...content.priorities[0]!, id: 'A1', title: 'Retirar la clave raíz', owner: 'Seguridad / IAM', verification: 'Comprobar AccountAccessKeysPresent=0 tras validar acceso alternativo.', urgency: 'immediate' as const, prerequisites: ['Confirmar acceso administrativo alternativo con un rol.'], dependsOn: [] as string[], steps: [{ instruction: 'Validar acceso alternativo con roles.', expectedEvidence: 'Acceso probado sin usar la clave raíz.' }, { instruction: 'Solicitar al responsable retirar la clave raíz.', expectedEvidence: 'AccountAccessKeysPresent=0.' }] };
+test('plan estructurado conserva pasos, exige IDs únicos y rechaza secuencias inválidas', () => {
+  const proposal = { ...content, priorities: [richPriority, { ...richPriority, id: 'A2', dependsOn: ['A1'] }] };
+  assert.equal(validateAdvice(proposal, ['F1']).priorities[1]?.dependsOn?.[0], 'A1');
+  assert.throws(() => validateAdvice({ ...proposal, priorities: [richPriority, richPriority] }, ['F1']), /duplicados/);
+  assert.throws(() => validateAdvice({ ...proposal, priorities: [{ ...richPriority, dependsOn: ['A8'] }] }, ['F1']), /inexistente/);
+  assert.throws(() => validateAdvice({ ...proposal, priorities: [{ ...richPriority, dependsOn: ['A2'] }, proposal.priorities[1]] }, ['F1']), /circulares/);
+  assert.throws(() => validateAdvice({ ...proposal, priorities: [{ ...richPriority, steps: [richPriority.steps[0]] }] }, ['F1']), /Pasos/);
+});
+test('guarda semántica también inspecciona pasos nuevos y permite prohibiciones explícitas', () => {
+  const input = advisoryInput(assessment);
+  assert.throws(() => validateAdviceEvidence({ ...content, priorities: [{ ...richPriority, steps: [{ instruction: 'Crear una nueva clave root.', expectedEvidence: 'Clave activa.' }] }] }, input), /clave root/);
+  assert.doesNotThrow(() => validateAdviceEvidence({ ...content, priorities: [{ ...richPriority, steps: [{ instruction: 'Nunca crear nuevas claves root.', expectedEvidence: 'Acceso alternativo con roles.' }] }] }, input));
+});
+test('contexto de IA distingue pendientes omitidos de información y riesgos cerrados', () => {
+  const findings = Array.from({ length: 43 }, (_, index) => ({ ...finding, id: `pending-${index}` }));
+  const input = advisoryInput({ ...assessment, findings: [...findings, { ...finding, id: 'closed', status: 'resolved' }, { ...finding, id: 'info', severity: 'INFORMATIONAL' }] });
+  assert.equal(input.facts.actionableFindings, 43); assert.equal(input.facts.omittedActionableFindings, 3); assert.equal(input.facts.totalFindings, 45);
+});
+test('generación nueva exige el plan rico aunque los borradores históricos sigan siendo legibles', async () => {
+  const valid = { ...content, priorities: [richPriority], architecture: [], nextChecks: [] };
+  const fake = (value: unknown) => async () => Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] });
+  const result = await generateAdvice(assessment, { apiKey: 'test', model: 'openai/gpt-oss-120b', fetch: fake(valid) });
+  assert.equal(result.content.priorities[0]?.steps?.length, 2);
+  await assert.rejects(generateAdvice(assessment, { apiKey: 'test', model: 'test', fetch: fake({ ...content, architecture: [], nextChecks: [] }) }), /incompleta/);
+});
