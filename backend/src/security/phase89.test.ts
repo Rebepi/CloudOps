@@ -56,6 +56,7 @@ test('IA rechaza referencias inventadas, campos de puntaje y credenciales', () =
 
 test('fallos del proveedor no filtran su cuerpo ni producen conclusiones', async () => {
   await assert.rejects(generateAdvice(assessment, { apiKey: 'test', model: 'test', fetch: async () => new Response('sensitive provider detail', { status: 401 }) }), (error: Error) => /HTTP 401/.test(error.message) && !/sensitive/.test(error.message));
+  await assert.rejects(generateAdvice(assessment, { apiKey: 'test', model: 'test', fetch: async () => Response.json({ error: { code: 'rate_limit_exceeded', message: 'tokens per minute (TPM): Limit 8000' } }, { status: 413 }) }), (error: Error & { statusCode?: number }) => error.statusCode === 429 && /límite temporal/.test(error.message));
   await assert.rejects(generateAdvice(assessment, { apiKey: 'test', model: 'test', fetch: async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify(content) } }] }) }), /incompleta/);
 });
 

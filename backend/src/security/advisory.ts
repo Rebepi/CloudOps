@@ -174,8 +174,12 @@ export async function generateAdvice(assessment: AdviceAssessment, settings: { a
         ] }),
     });
   } catch { throw Object.assign(new Error('Groq no respondió dentro del plazo o no hay conexión. Puedes reintentar; la evaluación permanece intacta.'), { statusCode: 502 }); }
-  if (response.status === 429) throw Object.assign(new Error('Groq alcanzó su límite temporal de solicitudes o tokens. Espera un minuto y vuelve a intentarlo; los resultados de seguridad se conservan.'), { statusCode: 429 });
-  if (!response.ok) throw Object.assign(new Error(`Groq respondió HTTP ${response.status}. Revisa credenciales, modelo o cuota del proveedor.`), { statusCode: 502 });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    const rateLimited = response.status === 429 || /rate_limit_exceeded|tokens per minute|\bTPM\b/i.test(detail);
+    if (rateLimited) throw Object.assign(new Error('Groq alcanzó su límite temporal de solicitudes o tokens. Espera un minuto y vuelve a intentarlo; los resultados de seguridad se conservan.'), { statusCode: 429 });
+    throw Object.assign(new Error(`Groq respondió HTTP ${response.status}. Revisa credenciales, modelo o cuota del proveedor.`), { statusCode: 502 });
+  }
   if (Number(response.headers.get('content-length') ?? 0) > 100_000) throw new Error('Respuesta de Groq fuera de límites.');
   const raw = await response.text();
   if (raw.length > 100_000) throw new Error('Respuesta de Groq fuera de límites.');
